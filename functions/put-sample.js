@@ -1,15 +1,19 @@
 export async function onRequest(context) {
-  // Read JSON body (will throw if invalid JSON)
+  const request = context.request;
   const data = await request.json();
+  const store = context.env.SAMPLES;
 
-  // Do something with `data` here...
-  console.log("Received:", data);
+  const time = Date.now();
+  const lat = Number(data.lat);
+  const lon = Number(data.lon);
+  const path = data.path ?? [];
 
-  return new Response(
-    JSON.stringify({
-      ok: true, received: data
-    }), {
-    status: 200,
-    headers: { "Content-Type": "application/json" }
+  const key = `${time}|${lat}|${lon}`;
+
+  await store.put(key, "", {
+    metadata: { time: time, lat: lat, lon: lon, path: path },
+    expirationTtl: 15552000  // 180 days
   });
+
+  return new Response('OK');
 }

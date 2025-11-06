@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <title>Add Sample</title>
+</head>
+
+<body>
+  <div>
+    <div>
+      <label for="lat">Lat:</label>
+      <input type="text" id="lat" name="lat">
+    </div>
+    <div>
+      <label for="lon">Lon:</label>
+      <input type="text" id="lon" name="lon">
+    </div>
+    <div>
+      <label for="path">Path:</label>
+      <input type="text" id="path" name="path">
+    </div>
+    <div>
+      <button id="submit" name="submit" onclick="putSample()">Submit</button>
+    </div>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const latTxt = $('lat');
+    const lonTxt = $('lon');
+    const pathTxt = $('path');
+
+    async function putSample() {
+      const latVal = latTxt.value;
+      const lonVal = lonTxt.value;
+      const pathVal = pathTxt.value;
+      const payload = {
+        lat: latVal,
+        lon: lonVal,
+        path: pathVal !== "" ? pathVal.split(',') : []
+      };
+
+      console.log(`putting ${payload}`);
+      const resp = await fetch('/put-sample', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!resp.ok) {
+        throw new Error('HTTP error ' + resp.status);
+      }
+    }
+  </script>
+</body>
+
+</html>

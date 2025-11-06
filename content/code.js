@@ -9,58 +9,50 @@ let sampleLayer = L.layerGroup().addTo(map);
 let repeaterLayer = L.layerGroup().addTo(map);
 let edgeLayer = L.layerGroup().addTo(map);
 
-function setStatus(msg, isError = false) {
-  if (isError === false) {
-    console.log(msg);
-  } else {
-    console.error(msg);
-  }
-}
+// function renderGraph(graph) {
+//   // Clear old
+//   pointsLayer.remove(); pointsLayer = L.layerGroup().addTo(map);
+//   clusterLayer.remove(); clusterLayer = L.markerClusterGroup({ showCoverageOnHover: false, spiderfyOnMaxZoom: true });
+//   pathLayer.setLatLngs([]);
+//   edgesLayer.clearLayers();
 
-function renderGraph(graph) {
-  // Clear old
-  pointsLayer.remove(); pointsLayer = L.layerGroup().addTo(map);
-  clusterLayer.remove(); clusterLayer = L.markerClusterGroup({ showCoverageOnHover: false, spiderfyOnMaxZoom: true });
-  pathLayer.setLatLngs([]);
-  edgesLayer.clearLayers();
+//   const useCluster = $('#chkCluster').checked;
+//   const drawEdges = $('#chkEdges').checked;
+//   const autoFit = $('#chkFit').checked;
 
-  const useCluster = $('#chkCluster').checked;
-  const drawEdges = $('#chkEdges').checked;
-  const autoFit = $('#chkFit').checked;
+//   const bounds = [];
 
-  const bounds = [];
+//   // Markers
+//   graph.points.forEach(rec => {
+//     const marker = markerFor(rec);
+//     bounds.push([rec.lat, rec.lng]);
+//     if (useCluster) clusterLayer.addLayer(marker); else pointsLayer.addLayer(marker);
+//   });
+//   if (useCluster) clusterLayer.addTo(map);
 
-  // Markers
-  graph.points.forEach(rec => {
-    const marker = markerFor(rec);
-    bounds.push([rec.lat, rec.lng]);
-    if (useCluster) clusterLayer.addLayer(marker); else pointsLayer.addLayer(marker);
-  });
-  if (useCluster) clusterLayer.addTo(map);
+//   // Edges
+//   if (drawEdges) {
+//     let ok = 0, miss = 0;
+//     graph.edges.forEach(pair => {
+//       const [a, b] = pair.split(',').map(s => s.trim());
+//       const A = graph.idToLatLng.get(a), B = graph.idToLatLng.get(b);
+//       if (A && B) {
+//         L.polyline([A, B], { weight: 2, opacity: 0.8, dashArray: '4,6' }).addTo(edgesLayer);
+//         ok++;
+//       } else {
+//         miss++;
+//       }
+//     });
+//     if (ok > 0) edgesLayer.bringToFront();
+//     setStatus(`Plotted ${graph.points.length} points. Drew ${ok} edge(s)${miss ? `, ${miss} missing id(s)` : ''}.`);
+//   } else {
+//     setStatus(`Plotted ${graph.points.length} points.`);
+//   }
 
-  // Edges
-  if (drawEdges) {
-    let ok = 0, miss = 0;
-    graph.edges.forEach(pair => {
-      const [a, b] = pair.split(',').map(s => s.trim());
-      const A = graph.idToLatLng.get(a), B = graph.idToLatLng.get(b);
-      if (A && B) {
-        L.polyline([A, B], { weight: 2, opacity: 0.8, dashArray: '4,6' }).addTo(edgesLayer);
-        ok++;
-      } else {
-        miss++;
-      }
-    });
-    if (ok > 0) edgesLayer.bringToFront();
-    setStatus(`Plotted ${graph.points.length} points. Drew ${ok} edge(s)${miss ? `, ${miss} missing id(s)` : ''}.`);
-  } else {
-    setStatus(`Plotted ${graph.points.length} points.`);
-  }
-
-  if (autoFit && bounds.length) {
-    if (bounds.length === 1) map.setView(bounds[0], 14); else map.fitBounds(bounds, { padding: [24, 24] });
-  }
-}
+//   if (autoFit && bounds.length) {
+//     if (bounds.length === 1) map.setView(bounds[0], 14); else map.fitBounds(bounds, { padding: [24, 24] });
+//   }
+// }
 
 function escapeHtml(s) {
   return String(s)
@@ -70,10 +62,11 @@ function escapeHtml(s) {
 }
 
 function sampleMarker(s) {
-  const color = s.heard !== null ? '#07ac07' : '#e96767';
+  const color = s.path.length > 0 ? '#07ac07' : '#e96767';
   const style = { radius: 6, weight: 1, color: color, fillOpacity: .9 };
   const marker = L.circleMarker([s.lat, s.lon], style);
-  const details = `${s.lat.toFixed(4)}, ${s.lon.toFixed(4)}`;
+  const date = new Date(s.time);
+  const details = `${s.lat.toFixed(4)}, ${s.lon.toFixed(4)}<br/>${date.toLocaleString()}`;
   marker.bindPopup(details, { maxWidth: 320 });
   return marker;
 }

@@ -9,11 +9,11 @@
     "kv_namespaces": [
         {
             "binding": "SAMPLES",
-            "id": "mesh-map-samples"
+            "id": "8c31c923de0f4fe284345168cd05aa3b"
         },
         {
             "binding": "REPEATERS",
-            "id": "mesh-map-repeaters"
+            "id": "73f95adffd5345848cbe49837df0778e"
         }
     ]
 }
