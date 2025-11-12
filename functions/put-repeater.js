@@ -3,6 +3,7 @@ export async function onRequest(context) {
   const data = await request.json();
   const store = context.env.REPEATERS;
 
+  const time = Date.now();
   const id = data.id;
   const name = data.name;
   const lat = parseFloat(data.lat);
@@ -15,7 +16,7 @@ export async function onRequest(context) {
 
   const key = `${id}|${lat}|${lon}`;
   await store.put(key, "", {
-    metadata: { id: id, name: name, lat: lat, lon: lon, path: path }
+    metadata: { time: time, id: id, name: name, lat: lat, lon: lon, path: path }
   });
 
   return new Response('OK');

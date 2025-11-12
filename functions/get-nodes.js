@@ -19,6 +19,7 @@ export async function onRequest(context) {
   const repeatersList = await repeaterStore.list();
   repeatersList.keys.forEach(s => {
     responseData.repeaters.push({
+      time: s.metadata.time ?? 0,
       id: s.metadata.id,
       name: s.metadata.name,
       lat: s.metadata.lat,

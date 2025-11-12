@@ -26,11 +26,18 @@ function sampleMarker(s) {
   return marker;
 }
 
+function ageInDays(time) {
+  const dayInMillis = 24 * 60 * 60 * 1000;
+  return (Date.now() - new Date(time)) / dayInMillis;
+}
+
 function repeaterMarker(r) {
-  const color = '#0a66c2';
+  const stale = ageInDays(r.time) > 1;
+  const dead = ageInDays(r.time) > 5;
+  const ageClass = (dead ? "dead" : (stale ? "stale" : ""));
   const icon = L.divIcon({
-    className: '', // Don't use Leaflet style.
-    html: `<div class="repeater-dot"><span>${r.id}</span></div>`,
+    className: '', // Don't use default Leaflet style.
+    html: `<div class="repeater-dot ${ageClass}"><span>${r.id}</span></div>`,
     iconSize: [20, 20],
     iconAnchor: [10, 10]
   });

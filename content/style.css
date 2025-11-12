@@ -23,6 +23,20 @@ body,
   color: #ffffff;
 }
 
+.repeater-dot.stale {
+  background: rgba(75, 101, 126, 0.9);
+  color: #c3c3c3;
+}
+
+.repeater-dot.dead {
+  background: rgba(38, 38, 39, 0.9);
+  color: #929292;
+}
+
+.repeater-dot.highlight {
+  background: rgba(255, 29, 199, 0.9);
+}
+
 .leaflet-popup-content {
   font: 13px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
 }
