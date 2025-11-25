@@ -14,8 +14,15 @@ async function cleanCoverage(context) {
         const groups = Object.groupBy(values, ({ time }) => time);
 
         // If there are dupes, there will be fewer groups than values.
-        if (Object.keys(groups).length === values.length) {
-          //console.log(`${key.name} has no dupes.`);
+        const groupCount = Object.keys(groups).length
+        const hasDupes = groupCount !== values.length
+
+        const metadata = key.metadata;
+        const samplesCount = metadata.heard + metadata.lost;
+        const hasMismatchCounts = groupCount !== samplesCount;
+
+        if (!(hasDupes || hasMismatchCounts)) {
+          // All good.
           continue;
         }
 
@@ -24,6 +31,17 @@ async function cleanCoverage(context) {
           ([k, v]) => {
             return { time: k, path: v[0].path };
           });
+
+        // Fixup metadata counts.
+        metadata.heard = 0;
+        metadata.lost = 0;
+        metadata.lastHeard = 0
+        newValue.forEach(s => {
+          const heard = s.path.length > 0
+          metadata.heard += heard ? 1 : 0;
+          metadata.lost += !heard ? 1 : 0;
+          metadata.lastHeard = Math.max(metadata.lastHeard, s.time);
+        });
 
         const newValueJson = JSON.stringify(newValue)
         console.log(`Putting ${key.name} ${newValueJson}`);
