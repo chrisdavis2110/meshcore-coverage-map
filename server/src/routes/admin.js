@@ -135,7 +135,7 @@ router.post('/clean-up', async (req, res, next) => {
       const allRepeaters = await repeatersModel.getAll();
       const byId = new Map();
       
-      allRepeaters.forEach(r => {
+      allRepeaters.keys.forEach(r => {
         const id = r.metadata.id;
         if (!byId.has(id)) {
           byId.set(id, []);
