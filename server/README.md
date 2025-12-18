@@ -16,6 +16,11 @@ This is the self-hosted version of the MeshCore Coverage Map, migrated from Clou
    cp .env.example .env  # Edit .env with your settings
    npm run docker:dev
    ```
+   
+   Or from the root directory:
+   ```bash
+   npm run docker:dev
+   ```
 
 3. **Configure MQTT scraper** (optional, for automatic data collection)
    ```bash
@@ -120,17 +125,7 @@ Copy the example environment file and edit it:
 cp .env.example .env
 ```
 
-Edit `.env` with your database credentials:
-
-```
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=meshmap
-DB_USER=postgres
-DB_PASSWORD=your_password_here
-PORT=3000
-NODE_ENV=development
-```
+Edit `.env` with your actual database credentials and settings. See `.env.example` for all available configuration options and `ENV_CONFIG.md` for detailed documentation.
 
 #### 5. Start the Server
 
@@ -191,11 +186,11 @@ For production deployment with Docker:
 1. Create a `.env` file with production credentials:
 
 ```bash
-DB_PASSWORD=your_secure_password
-DB_USER=meshmap
-DB_NAME=meshmap
-PORT=3000
+cp .env.example .env
+# Edit .env with your production values
 ```
+
+See `.env.example` for all configuration options.
 
 2. Start with production compose file:
 
@@ -223,8 +218,8 @@ pm2 save
 pm2 startup
 ```
 
-3. Set up a reverse proxy (nginx) if needed
-4. Configure SSL/TLS certificates
+3. Set up a reverse proxy (nginx) - **Recommended for production** (see AWS EC2 Deployment section)
+4. Configure SSL/TLS certificates - **Required for HTTPS** (see AWS EC2 Deployment section)
 5. Set up database backups
 
 ## Differences from Cloudflare Version
@@ -246,7 +241,7 @@ By default, location validation is disabled (no distance limit). You can optiona
 
 ### Enable Location Validation
 
-To restrict locations to a specific region, set in `.env`:
+To restrict locations to a specific region, configure in your `.env` file (see `.env.example` for details):
 
 ```bash
 CENTER_POS=37.3382,-121.8863
@@ -256,6 +251,8 @@ MAX_DISTANCE_MILES=100
 Where:
 - `CENTER_POS` - Center point in "lat,lon" format
 - `MAX_DISTANCE_MILES` - Maximum distance in miles from center (set to 0 to disable)
+
+See `ENV_CONFIG.md` for more details on configuration options.
 
 ## Troubleshooting
 
@@ -308,7 +305,7 @@ The server includes automated maintenance tasks that run on a schedule:
 
 ### Configuration
 
-Add to your `.env` file:
+Configure in your `.env` file (see `.env.example` for all options):
 
 ```bash
 # Consolidate settings
@@ -322,6 +319,8 @@ CLEANUP_SCHEDULE=0 3 * * 0      # Weekly on Sunday at 3 AM
 ```
 
 To disable a task, set `CONSOLIDATE_ENABLED=false` or `CLEANUP_ENABLED=false`.
+
+See `ENV_CONFIG.md` for detailed documentation on all configuration options.
 
 ### Manual Execution
 
@@ -539,6 +538,291 @@ The scraper will automatically generate tokens using the `meshcore-decoder` CLI 
 - For Docker: use `http://app:3000`
 - For manual: use `http://localhost:3000`
 - Check API server logs for errors
+
+## AWS EC2 Deployment
+
+This section covers deploying the application on AWS EC2 with SSL certificates and production hardening.
+
+### Prerequisites
+
+- AWS EC2 instance (Ubuntu 22.04 LTS recommended)
+- Domain name pointing to your EC2 instance's public IP
+- Security group configured to allow:
+  - Port 22 (SSH)
+  - Port 80 (HTTP - for Let's Encrypt)
+  - Port 443 (HTTPS)
+- Root or sudo access to the EC2 instance
+
+### Architecture
+
+For production, we recommend using **Nginx as a reverse proxy**:
+
+```
+Internet → Nginx (port 443, SSL) → Express (port 3000, HTTP internal)
+```
+
+**Why Nginx?**
+- Let's Encrypt certbot works seamlessly with Nginx
+- Better performance for static files and SSL termination
+- Industry-standard for production deployments
+- Handles security headers, rate limiting, and logging
+- Simpler than adding multiple Express middleware packages
+
+### Step 1: Install Nginx
+
+```bash
+sudo apt update
+sudo apt install -y nginx
+sudo systemctl enable nginx
+sudo systemctl start nginx
+```
+
+### Step 2: Install Let's Encrypt Certificate
+
+```bash
+# Install certbot
+sudo apt install -y certbot python3-certbot-nginx
+
+# Obtain certificate (replace with your domain)
+sudo certbot --nginx -d your-domain.com -d www.your-domain.com
+
+# Certbot will:
+# - Automatically configure Nginx for SSL
+# - Set up auto-renewal
+# - Redirect HTTP to HTTPS
+```
+
+**Auto-renewal** is automatically configured. Test renewal with:
+```bash
+sudo certbot renew --dry-run
+```
+
+### Step 3: Configure Nginx
+
+1. **Copy the configuration template:**
+   ```bash
+   sudo cp server/nginx/meshmap.conf /etc/nginx/sites-available/meshmap
+   ```
+
+2. **Edit the configuration:**
+   ```bash
+   sudo nano /etc/nginx/sites-available/meshmap
+   ```
+   
+   Update:
+   - `server_name` with your domain
+   - SSL certificate paths (if certbot didn't auto-configure)
+   - Static file paths (if using Nginx for static files)
+
+3. **Enable the site:**
+   ```bash
+   sudo ln -s /etc/nginx/sites-available/meshmap /etc/nginx/sites-enabled/
+   sudo nginx -t  # Test configuration
+   sudo systemctl reload nginx
+   ```
+
+### Step 4: Configure Firewall
+
+```bash
+# Install UFW (if not already installed)
+sudo apt install -y ufw
+
+# Allow SSH (important - do this first!)
+sudo ufw allow 22/tcp
+
+# Allow HTTP and HTTPS
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+
+# Enable firewall
+sudo ufw enable
+sudo ufw status
+```
+
+**AWS Security Groups:** Also configure in AWS Console:
+- Inbound rules: Allow ports 22, 80, 443 from appropriate sources
+- Outbound rules: Allow all (default)
+
+### Step 5: Deploy Application
+
+#### Option A: With Docker (Recommended)
+
+1. **Install Docker and Docker Compose:**
+   ```bash
+   sudo apt install -y docker.io docker-compose
+   sudo systemctl enable docker
+   sudo usermod -aG docker $USER
+   # Log out and back in for group changes
+   ```
+
+2. **Clone and configure:**
+   ```bash
+   git clone <your-repo-url>
+   cd meshcore-coverage-map-1/server
+   cp .env.example .env
+   nano .env  # Configure with production values
+   ```
+
+3. **Start services:**
+   ```bash
+   npm run docker:prod:detached
+   ```
+
+#### Option B: Without Docker
+
+1. **Install Node.js and PostgreSQL:**
+   ```bash
+   # Node.js (using NodeSource)
+   curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+   sudo apt install -y nodejs
+
+   # PostgreSQL
+   sudo apt install -y postgresql postgresql-contrib
+   ```
+
+2. **Set up database:**
+   ```bash
+   sudo -u postgres psql
+   CREATE DATABASE meshmap;
+   CREATE USER meshmap WITH PASSWORD 'your_secure_password';
+   GRANT ALL PRIVILEGES ON DATABASE meshmap TO meshmap;
+   \q
+   ```
+
+3. **Configure and run:**
+   ```bash
+   cd server
+   cp .env.example .env
+   nano .env  # Configure database and other settings
+   npm install
+   npm run migrate
+   NODE_ENV=production npm start
+   ```
+
+4. **Use PM2 for process management:**
+   ```bash
+   sudo npm install -g pm2
+   pm2 start server.js --name mesh-map
+   pm2 save
+   pm2 startup  # Follow instructions to enable on boot
+   ```
+
+### Step 6: Verify Deployment
+
+1. **Check Nginx status:**
+   ```bash
+   sudo systemctl status nginx
+   sudo nginx -t
+   ```
+
+2. **Check application logs:**
+   ```bash
+   # Docker
+   docker-compose logs -f app
+
+   # PM2
+   pm2 logs mesh-map
+   ```
+
+3. **Test HTTPS:**
+   - Visit `https://your-domain.com`
+   - Verify SSL certificate is valid
+   - Check browser security indicators
+
+### Production Hardening Checklist
+
+#### ✅ Security Headers (Nginx)
+- HSTS (Strict-Transport-Security) - configured in nginx config
+- X-Frame-Options - configured
+- X-Content-Type-Options - configured
+- X-XSS-Protection - configured
+
+#### ✅ Rate Limiting (Nginx)
+- API endpoints: 10 requests/second (configurable in nginx config)
+- Burst protection: 20 requests
+
+#### ✅ SSL/TLS
+- Let's Encrypt certificate installed
+- Auto-renewal configured
+- Modern TLS protocols (1.2, 1.3)
+- Secure cipher suites
+
+#### ✅ Firewall
+- UFW configured (ports 22, 80, 443)
+- AWS Security Groups configured
+
+#### ✅ Logging
+- Nginx access logs: `/var/log/nginx/meshmap_access.log`
+- Nginx error logs: `/var/log/nginx/meshmap_error.log`
+- Application logs: PM2 or Docker logs
+
+#### ✅ Database Security
+- Strong password in `.env` (not committed to git)
+- Database only accessible from localhost (default)
+- Regular backups recommended
+
+#### ✅ Environment Security
+- `.env` file not in git (already in `.gitignore`)
+- `NODE_ENV=production` set
+- Error messages hidden in production (already configured)
+
+#### ✅ Backup Strategy
+
+**Database Backups:**
+```bash
+# Manual backup
+pg_dump -U meshmap meshmap > backup_$(date +%Y%m%d).sql
+
+# Automated daily backup (add to crontab)
+0 2 * * * pg_dump -U meshmap meshmap > /backups/meshmap_$(date +\%Y\%m\%d).sql
+
+# Keep last 30 days
+find /backups -name "meshmap_*.sql" -mtime +30 -delete
+```
+
+**Application Backups:**
+- Code: Git repository (already version controlled)
+- Configuration: Backup `.env` file securely
+- SSL certificates: Backed up by certbot automatically
+
+### Troubleshooting
+
+**SSL Certificate Issues:**
+```bash
+# Check certificate status
+sudo certbot certificates
+
+# Renew manually
+sudo certbot renew
+
+# Check Nginx SSL configuration
+sudo nginx -t
+```
+
+**Nginx Issues:**
+```bash
+# Check error logs
+sudo tail -f /var/log/nginx/meshmap_error.log
+
+# Test configuration
+sudo nginx -t
+
+# Reload configuration
+sudo systemctl reload nginx
+```
+
+**Application Not Responding:**
+```bash
+# Check if Express is running
+curl http://localhost:3000
+
+# Check Docker containers
+docker-compose ps
+
+# Check PM2
+pm2 status
+pm2 logs mesh-map
+```
 
 ## License
 

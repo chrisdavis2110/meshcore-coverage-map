@@ -1,5 +1,15 @@
 # Environment Configuration
 
+**See `.env.example` for the complete configuration template with all available options.**
+
+This document provides additional details and explanations for environment variables.
+
+## Quick Start
+
+1. Copy the example file: `cp .env.example .env`
+2. Edit `.env` with your actual values
+3. For Docker: The `docker-compose.yml` automatically loads `.env` file
+
 ## Location Validation Settings
 
 The application can optionally validate that locations are within a certain distance from a center point. By default, validation is disabled (no distance limit).
@@ -11,7 +21,7 @@ The application can optionally validate that locations are within a certain dist
 
 ### Enable Location Validation
 
-To restrict locations to a specific region, configure:
+To restrict locations to a specific region, set in `.env`:
 
 ```bash
 CENTER_POS=37.3382,-121.8863
@@ -21,40 +31,6 @@ MAX_DISTANCE_MILES=100
 Where:
 - `CENTER_POS` - Center point in "lat,lon" format
 - `MAX_DISTANCE_MILES` - Maximum distance in miles from center (set to 0 to disable)
-
-## Example .env Configuration
-
-```bash
-# Database Configuration
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=meshmap
-DB_USER=postgres
-DB_PASSWORD=your_password_here
-
-# Server Configuration
-PORT=3000
-NODE_ENV=development
-
-# Location Validation (optional)
-# Default: no distance limit (MAX_DISTANCE_MILES=0)
-# To enable regional restriction:
-# CENTER_POS=37.3382,-121.8863
-# MAX_DISTANCE_MILES=100
-```
-
-## Docker Configuration
-
-In `docker-compose.yml`, you can set these as environment variables:
-
-```yaml
-environment:
-  # ... other vars ...
-  CENTER_POS: "37.3382,-121.8863"  # Default: San Jose, CA
-  MAX_DISTANCE_MILES: 0             # Default: no limit
-  # To enable regional restriction:
-  # MAX_DISTANCE_MILES: 100
-```
 
 ## Maintenance Task Configuration
 

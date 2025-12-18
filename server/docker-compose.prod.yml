@@ -1,9 +1,10 @@
-version: '3.8'
-
 services:
   db:
     image: postgres:15-alpine
     container_name: meshmap-db-prod
+    # Load DB credentials from .env file
+    env_file:
+      - .env
     environment:
       POSTGRES_USER: ${DB_USER:-meshmap}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
@@ -25,16 +26,18 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: meshmap-app-prod
+    # Load environment variables from .env file
+    env_file:
+      - .env
     environment:
+      # Docker-specific overrides
       DB_HOST: db
-      DB_PORT: 5432
-      DB_NAME: ${DB_NAME:-meshmap}
-      DB_USER: ${DB_USER:-meshmap}
-      DB_PASSWORD: ${DB_PASSWORD}
-      PORT: 3000
       NODE_ENV: production
+      # All other config comes from .env file
     ports:
       - "${PORT:-3000}:3000"
+    # Note: In production, Nginx should be installed on the host and proxy to this container
+    # See AWS EC2 Deployment section in README for Nginx setup
     depends_on:
       db:
         condition: service_healthy
