@@ -56,19 +56,20 @@ services:
       - meshmap-network
     command: npm run dev
 
-  mosquitto:
-    image: eclipse-mosquitto:2.0
-    container_name: meshmap-mosquitto
-    ports:
-      - "1883:1883"
-      - "9001:9001"
-    volumes:
-      - mosquitto_data:/mosquitto/data
-      - mosquitto_log:/mosquitto/log
-      - ./mosquitto/config:/mosquitto/config
-    networks:
-      - meshmap-network
-    restart: unless-stopped
+  # Mosquitto disabled by default - uncomment to enable local MQTT broker
+  # mosquitto:
+  #   image: eclipse-mosquitto:2.0
+  #   container_name: meshmap-mosquitto
+  #   ports:
+  #     - "1883:1883"
+  #     - "9001:9001"
+  #   volumes:
+  #     - mosquitto_data:/mosquitto/data
+  #     - mosquitto_log:/mosquitto/log
+  #     - ./mosquitto/config:/mosquitto/config
+  #   networks:
+  #     - meshmap-network
+  #   restart: unless-stopped
 
   mqtt-scraper:
     build:
