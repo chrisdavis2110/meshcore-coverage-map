@@ -1,31 +1,31 @@
 services:
   db:
     image: postgres:15-alpine
-    container_name: meshmap-db-prod
+    container_name: ${INSTANCE_NAME:-default}-meshmap-db-prod
     # Load DB credentials from .env file
     env_file:
       - .env
     environment:
-      POSTGRES_USER: ${DB_USER:-meshmap}
+      POSTGRES_USER: ${DB_USER:-${INSTANCE_NAME:-meshmap}}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
-      POSTGRES_DB: ${DB_NAME:-meshmap}
+      POSTGRES_DB: ${DB_NAME:-${INSTANCE_NAME:-meshmap}}
     volumes:
-      - postgres_data_prod:/var/lib/postgresql/data
+      - ${INSTANCE_NAME:-default}_postgres_data_prod:/var/lib/postgresql/data
       - ./migrations:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-meshmap}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-${INSTANCE_NAME:-meshmap}}"]
       interval: 10s
       timeout: 5s
       retries: 5
     networks:
-      - meshmap-network
+      - ${INSTANCE_NAME:-default}-meshmap-network
     restart: unless-stopped
 
   app:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: meshmap-app-prod
+    container_name: ${INSTANCE_NAME:-default}-meshmap-app-prod
     # Load environment variables from .env file
     env_file:
       - .env
@@ -35,32 +35,32 @@ services:
       NODE_ENV: production
       # All other config comes from .env file
     ports:
-      - "${PORT:-3000}:3000"
+      - "${HTTP_PORT:-3000}:3000"
     depends_on:
       db:
         condition: service_healthy
     networks:
-      - meshmap-network
+      - ${INSTANCE_NAME:-default}-meshmap-network
     restart: unless-stopped
 
   mqtt-scraper:
     build:
       context: ../mqtt-scraper
       dockerfile: Dockerfile
-    container_name: meshmap-mqtt-scraper-prod
+    container_name: ${INSTANCE_NAME:-default}-meshmap-mqtt-scraper-prod
     volumes:
       - ../mqtt-scraper/config.json:/app/config.json:ro
     depends_on:
       app:
         condition: service_started
     networks:
-      - meshmap-network
+      - ${INSTANCE_NAME:-default}-meshmap-network
     restart: unless-stopped
 
 volumes:
-  postgres_data_prod:
+  ${INSTANCE_NAME:-default}_postgres_data_prod:
 
 networks:
-  meshmap-network:
+  ${INSTANCE_NAME:-default}-meshmap-network:
     driver: bridge
 

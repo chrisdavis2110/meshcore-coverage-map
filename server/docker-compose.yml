@@ -1,32 +1,32 @@
 services:
   db:
     image: postgres:15-alpine
-    container_name: meshmap-db
+    container_name: ${INSTANCE_NAME:-default}-meshmap-db
     # Load DB credentials from .env file (with defaults for fresh setup)
     env_file:
       - .env
     environment:
-      POSTGRES_USER: ${DB_USER:-meshmap}
+      POSTGRES_USER: ${DB_USER:-${INSTANCE_NAME:-meshmap}}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-meshmap_dev}
-      POSTGRES_DB: ${DB_NAME:-meshmap}
+      POSTGRES_DB: ${DB_NAME:-${INSTANCE_NAME:-meshmap}}
     ports:
-      - "5432:5432"
+      - "${DB_PORT:-5432}:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - ${INSTANCE_NAME:-default}_postgres_data:/var/lib/postgresql/data
       - ./migrations:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-meshmap}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-${INSTANCE_NAME:-meshmap}}"]
       interval: 10s
       timeout: 5s
       retries: 5
     networks:
-      - meshmap-network
+      - ${INSTANCE_NAME:-default}-meshmap-network
 
   app:
     build:
       context: .
       dockerfile: Dockerfile.dev
-    container_name: meshmap-app
+    container_name: ${INSTANCE_NAME:-default}-meshmap-app
     # Load environment variables from .env file
     # Copy .env.example to .env and configure your settings
     env_file:
@@ -36,8 +36,8 @@ services:
       DB_HOST: db
       # All other config comes from .env file (see .env.example)
     ports:
-      - "3000:3000"
-      - "3443:3443"
+      - "${HTTP_PORT:-3000}:3000"
+      - "${HTTPS_PORT:-3443}:3443"
     volumes:
       - .:/app
       - /app/node_modules
@@ -46,27 +46,27 @@ services:
       db:
         condition: service_healthy
     networks:
-      - meshmap-network
+      - ${INSTANCE_NAME:-default}-meshmap-network
     command: npm run dev
 
   mqtt-scraper:
     build:
       context: ../mqtt-scraper
       dockerfile: Dockerfile
-    container_name: meshmap-mqtt-scraper
+    container_name: ${INSTANCE_NAME:-default}-meshmap-mqtt-scraper
     volumes:
       - ../mqtt-scraper/config.json:/app/config.json:ro
     depends_on:
       app:
         condition: service_started
     networks:
-      - meshmap-network
+      - ${INSTANCE_NAME:-default}-meshmap-network
     restart: unless-stopped
 
 volumes:
-  postgres_data:
+  ${INSTANCE_NAME:-default}_postgres_data:
 
 networks:
-  meshmap-network:
+  ${INSTANCE_NAME:-default}-meshmap-network:
     driver: bridge
 

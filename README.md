@@ -47,18 +47,25 @@ npm run docker:dev
 
 ## Configuration
 
-Edit `server/.env` (copy from `.env.example`):
+Edit `server/.env` (copy from `.env.example`). The `.env.example` file includes:
 
 ```bash
-# Database
+# Instance Configuration (for running multiple instances on same host)
+INSTANCE_NAME=default
+HTTP_PORT=3000
+HTTPS_PORT=3443
+DB_PORT=5432
+
+# Database Configuration
 DB_HOST=localhost
 DB_PORT=5432
 DB_NAME=meshmap
 DB_USER=meshmap
 DB_PASSWORD=your_password
 
-# Server
+# Server Configuration
 PORT=3000
+HTTPS_PORT=3443
 NODE_ENV=production
 
 # Location validation (optional)
@@ -72,6 +79,42 @@ CONSOLIDATE_MAX_AGE_DAYS=14
 CLEANUP_ENABLED=true
 CLEANUP_SCHEDULE=0 3 * * 0  # Weekly Sunday at 3 AM
 ```
+
+**Note:** `DB_NAME` and `DB_USER` default to `${INSTANCE_NAME:-meshmap}` if not explicitly set, allowing instance-specific databases.
+
+## Running Multiple Instances
+
+You can run multiple instances (e.g., "west" and "east") on the same host from separate repository checkouts. Each instance needs unique configuration:
+
+**West instance** (`server/.env`):
+```bash
+INSTANCE_NAME=west
+HTTP_PORT=3000
+HTTPS_PORT=3443
+DB_PORT=5432
+DB_NAME=west_meshmap
+DB_USER=west_meshmap
+DB_PASSWORD=west_password
+```
+
+**East instance** (`server/.env`):
+```bash
+INSTANCE_NAME=east
+HTTP_PORT=3001
+HTTPS_PORT=3444
+DB_PORT=5433
+DB_NAME=east_meshmap
+DB_USER=east_meshmap
+DB_PASSWORD=east_password
+```
+
+This ensures:
+- Unique container names (`west-meshmap-db`, `east-meshmap-db`, etc.)
+- Unique ports (no conflicts)
+- Separate Docker volumes and networks
+- Separate databases
+
+Each instance runs independently from its own repository checkout.
 
 ## MQTT Scraper (Optional)
 
@@ -130,7 +173,11 @@ Access the map and tools at:
 
 **Database connection issues:**
 ```bash
-docker exec meshmap-db psql -U meshmap -d meshmap
+# For default instance
+docker exec default-meshmap-db psql -U meshmap -d meshmap
+
+# For named instance (e.g., "west")
+docker exec west-meshmap-db psql -U west_meshmap -d west_meshmap
 ```
 
 **Port already in use:**
@@ -151,9 +198,14 @@ docker-compose -f docker-compose.prod.yml up -d --build
 
 **View logs:**
 ```bash
+# For default instance
 docker-compose logs -f app
 docker-compose logs -f db
 docker-compose logs -f mqtt-scraper
+
+# For named instance, use container names
+docker logs -f west-meshmap-app
+docker logs -f west-meshmap-db
 ```
 
 ## License
