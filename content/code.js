@@ -159,6 +159,32 @@ function sampleMarker(s) {
     ${path.length === 0 ? '' : '<br/>Hit: ' + path.join(',')}`;
   marker.bindPopup(details, { maxWidth: 320 });
   marker.on('add', () => updateSampleMarkerVisibility(marker));
+
+  // Store sample data on marker for event handlers
+  marker.sample = s;
+
+  // Add event handlers to show trace lines when clicking/hovering on sample
+  marker.on('popupopen', e => {
+    // Find the coverage object for this sample (take first 6 chars of geohash)
+    const coverageKey = s.id.substring(0, 6);
+    const coverage = hashToCoverage?.get(coverageKey);
+    if (coverage) {
+      updateAllEdgeVisibility(coverage);
+    }
+  });
+  marker.on('popupclose', () => updateAllEdgeVisibility());
+
+  if (window.matchMedia("(hover: hover)").matches) {
+    marker.on('mouseover', e => {
+      const coverageKey = s.id.substring(0, 6);
+      const coverage = hashToCoverage?.get(coverageKey);
+      if (coverage) {
+        updateAllEdgeVisibility(coverage);
+      }
+    });
+    marker.on('mouseout', () => updateAllEdgeVisibility());
+  }
+
   return marker;
 }
 
@@ -282,10 +308,30 @@ function updateAllEdgeVisibility(end) {
   updateAllCoverageMarkers();
 
   edgeLayer.eachLayer(e => {
-    if (end !== undefined && e.ends.includes(end)) {
+    let shouldShow = false;
+    if (end !== undefined) {
       // e.ends is [repeater, coverage]
-      markersToOverride.push(e.ends[0].marker);
-      coverageToHighlight.push(e.ends[1].marker);
+      // Check if end matches either the repeater or coverage
+      // Use ID comparison instead of object reference to handle multiple repeaters with same ID
+      if (end.id !== undefined && end.lat !== undefined) {
+        // end is a repeater - compare by ID (case-insensitive)
+        shouldShow = e.ends[0].id?.toLowerCase() === end.id.toLowerCase();
+      } else if (end.id !== undefined && end.pos !== undefined) {
+        // end is a coverage - compare by geohash ID
+        shouldShow = e.ends[1].id === end.id;
+      } else {
+        // Fallback to object reference comparison
+        shouldShow = e.ends.includes(end);
+      }
+    }
+
+    if (shouldShow) {
+      if (e.ends[0].marker) {
+        markersToOverride.push(e.ends[0].marker);
+      }
+      if (e.ends[1].marker) {
+        coverageToHighlight.push(e.ends[1].marker);
+      }
       e.setStyle({ opacity: 0.6 });
     } else {
       e.setStyle({ opacity: 0 });
@@ -293,10 +339,14 @@ function updateAllEdgeVisibility(end) {
   });
 
   // Force connected repeaters to be shown.
-  markersToOverride.forEach(m => updateRepeaterMarkerVisibility(m, true, true));
+  markersToOverride.forEach(m => {
+    if (m) updateRepeaterMarkerVisibility(m, true, true);
+  });
 
   // Highlight connected coverage markers.
-  coverageToHighlight.forEach(m => updateCoverageMarkerHighlight(m, true));
+  coverageToHighlight.forEach(m => {
+    if (m) updateCoverageMarkerHighlight(m, true);
+  });
 }
 
 function renderNodes(nodes) {
