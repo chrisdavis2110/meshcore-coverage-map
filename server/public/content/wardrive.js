@@ -78,7 +78,7 @@ let currentLocMarker = L.circleMarker([0, 0], {
   fillOpacity: .8,
   interactive: false,
   pane: "tooltipPane"
-}).addTo(map);
+});
 
 function setStatus(text, color = null) {
   statusEl.textContent = text;
@@ -787,6 +787,14 @@ async function handleConnect() {
 
   try {
     const connection = await WebBleConnection.open();
+
+    // User cancelled device picker or no device selected
+    if (!connection) {
+      setStatus("No device selected", "text-amber-300");
+      connectBtn.disabled = false;
+      return;
+    }
+
     state.connection = connection;
 
     // Add handlers
@@ -933,60 +941,73 @@ function onLogRxData(frame) {
 }
 
 // --- Event bindings ---
-connectBtn.addEventListener("click", () => {
-  handleConnect().catch(console.error);
-});
-
-if (disconnectBtn) {
-  disconnectBtn.addEventListener("click", () => {
-    handleDisconnect().catch(console.error);
-  });
-}
-
-sendPingBtn.addEventListener("click", () => {
-  sendPing({ auto: false }).catch(console.error);
-});
-
-autoToggleBtn.addEventListener("click", async () => {
-  if (state.running) {
-    stopAutoPing();
-    setStatus("Auto mode stopped", "text-slate-300");
-  } else {
-    await startAutoPing();
+function attachEventListeners() {
+  if (!connectBtn) {
+    console.error("Connect button not found!");
+    return;
   }
-});
 
-if (pingModeSelect) {
-  pingModeSelect.addEventListener("change", async () => {
-    const pingMode = pingModeSelect.value;
+  connectBtn.addEventListener("click", () => {
+    handleConnect().catch(console.error);
+  });
 
-    if (state.pingMode === pingMode) {
-      return;
-    }
+  if (disconnectBtn) {
+    disconnectBtn.addEventListener("click", () => {
+      handleDisconnect().catch(console.error);
+    });
+  }
 
-    stopAutoPing();
-    state.pingMode = pingMode;
-    if (intervalSection) {
-      if (pingMode === "interval") {
-        intervalSection.classList.remove("hidden");
+  if (sendPingBtn) {
+    sendPingBtn.addEventListener("click", () => {
+      sendPing({ auto: false }).catch(console.error);
+    });
+  }
+
+  if (autoToggleBtn) {
+    autoToggleBtn.addEventListener("click", async () => {
+      if (state.running) {
+        stopAutoPing();
+        setStatus("Auto mode stopped", "text-slate-300");
       } else {
-        intervalSection.classList.add("hidden");
+        await startAutoPing();
       }
-    }
-  });
-}
+    });
+  }
 
-ignoredRepeaterBtn.addEventListener("click", promptIgnoredId);
+  if (pingModeSelect) {
+    pingModeSelect.addEventListener("change", async () => {
+      const pingMode = pingModeSelect.value;
 
-if (clearLogBtn) {
-  clearLogBtn.addEventListener("click", () => {
-    if (!confirm("Clear local wardrive log?")) return;
-    state.log = [];
-    state.lastSample = null;
-    updateLastSampleInfo();
-    saveLog();
-    renderLog();
-  });
+      if (state.pingMode === pingMode) {
+        return;
+      }
+
+      stopAutoPing();
+      state.pingMode = pingMode;
+      if (intervalSection) {
+        if (pingMode === "interval") {
+          intervalSection.classList.remove("hidden");
+        } else {
+          intervalSection.classList.add("hidden");
+        }
+      }
+    });
+  }
+
+  if (ignoredRepeaterBtn) {
+    ignoredRepeaterBtn.addEventListener("click", promptIgnoredId);
+  }
+
+  if (clearLogBtn) {
+    clearLogBtn.addEventListener("click", () => {
+      if (!confirm("Clear local wardrive log?")) return;
+      state.log = [];
+      state.lastSample = null;
+      updateLastSampleInfo();
+      saveLog();
+      renderLog();
+    });
+  }
 }
 
 // Automatically release wake lock when the page is hidden.
@@ -1017,10 +1038,13 @@ if ('bluetooth' in navigator) {
 export async function onLoad() {
   try {
     console.log('Wardrive: Starting onLoad...');
-    
+
+    // Attach event listeners first
+    attachEventListeners();
+
     // Load config from server first
     await loadConfig();
-    
+
     // Initialize map with configured center position
     map = L.map('map', {
       worldCopyJump: true,
@@ -1033,20 +1057,20 @@ export async function onLoad() {
       zoomControl: false,
       doubleClickZoom: false
     }).setView(centerPos, 12);
-    
+
     // Create and add tile layer
     osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 13,
       attribution: '© OpenStreetMap contributors'
     }).addTo(map);
-    
+
     // Create map layers
     coverageLayer = L.layerGroup().addTo(map);
     pingLayer = L.layerGroup().addTo(map);
-    
+
     // Add current location marker to map
     currentLocMarker.addTo(map);
-    
+
     loadLog();
     loadIgnoredId();
     updateLastSampleInfo();

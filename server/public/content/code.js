@@ -141,11 +141,11 @@ repeatersControl.onAdd = m => {
       <div id="repeaters-list-content" style="padding: 0;"></div>
     </div>
   `;
-  
+
   const button = div.querySelector("#repeaters-button");
   const list = div.querySelector("#repeaters-list");
   const content = div.querySelector("#repeaters-list-content");
-  
+
   button.addEventListener("click", (e) => {
     e.stopPropagation();
     if (list.style.display === "none") {
@@ -155,47 +155,47 @@ repeatersControl.onAdd = m => {
       list.style.display = "none";
     }
   });
-  
+
   // Close when clicking outside (use the map parameter 'm' passed to onAdd)
   const closeHandler = () => {
     list.style.display = "none";
   };
   m.on("click", closeHandler);
-  
+
   // Prevent clicks inside the list from closing it
   list.addEventListener("click", (e) => {
     e.stopPropagation();
   });
-  
+
   L.DomEvent.disableClickPropagation(div);
   L.DomEvent.disableScrollPropagation(div);
-  
+
   return div;
 };
 // Initialization function - loads config and sets up map
 async function initMap() {
   // Load config from server
   await loadConfig();
-  
+
   // Initialize map with configured center position
   map = L.map('map', { worldCopyJump: true }).setView(centerPos, 10);
-  
+
   // Create and add tile layer
   osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
     attribution: '© OpenStreetMap contributors | <a href="/howto" target="_blank">Contribute</a>'
   }).addTo(map);
-  
+
   // Create map layers
   coverageLayer = L.layerGroup().addTo(map);
   edgeLayer = L.layerGroup().addTo(map);
   sampleLayer = L.layerGroup().addTo(map);
   repeaterLayer = L.layerGroup().addTo(map);
-  
+
   // Add controls
   mapControl.addTo(map);
   repeatersControl.addTo(map);
-  
+
   // Max radius circle (only show if distance limit is enabled)
   if (maxDistanceMiles > 0) {
     L.circle(centerPos, {
@@ -205,7 +205,7 @@ async function initMap() {
       fill: false
     }).addTo(map);
   }
-  
+
   // Load initial data
   await refreshCoverage();
 }
@@ -246,9 +246,9 @@ function escapeHtml(s) {
 function successRateToColor(rate) {
   // Clamp rate to 0-1
   const clampedRate = Math.max(0, Math.min(1, rate));
-  
+
   let red, green, blue;
-  
+
   if (clampedRate >= 0.75) {
     // Dark green (0, 100, 0) to lighter green (50, 150, 50) (75-100%)
     // Making light green closer to dark green
@@ -275,13 +275,13 @@ function successRateToColor(rate) {
     green = Math.round(100 - 100 * t);            // 100 -> 0
     blue = 0;                                      // 0
   }
-  
+
   // Convert to hex
   const toHex = (n) => {
     const hex = n.toString(16);
     return hex.length === 1 ? '0' + hex : hex;
   };
-  
+
   return `#${toHex(red)}${toHex(green)}${toHex(blue)}`;
 }
 
@@ -296,8 +296,8 @@ function coverageMarker(coverage) {
   // Base opacity on total samples, but ensure minimum visibility for lost-only tiles
   const baseOpacity = 0.75 * sigmoid(totalSamples, 1.2, 2);
   // For tiles with only lost samples, use higher minimum opacity
-  const opacity = heardRatio > 0 
-    ? baseOpacity * heardRatio 
+  const opacity = heardRatio > 0
+    ? baseOpacity * heardRatio
     : Math.max(baseOpacity, 0.4); // At least 40% opacity for lost-only tiles
   const style = {
     color: color,
@@ -340,12 +340,12 @@ function sampleMarker(s) {
   const color = successRateToColor(successRate);
   // Scale marker size based on number of samples (min 5, max 15)
   const radius = Math.min(Math.max(5, Math.sqrt(s.total || 1) * 2), 15);
-  const style = { 
-    radius: radius, 
-    weight: 2, 
-    color: color, 
+  const style = {
+    radius: radius,
+    weight: 2,
+    color: color,
     fillColor: color,
-    fillOpacity: 0.7 
+    fillOpacity: 0.7
   };
   const marker = L.circleMarker([lat, lon], style);
   const date = new Date(fromTruncatedTime(s.time));
@@ -376,12 +376,12 @@ function individualSampleMarker(sample) {
   // Individual sample: heard = has path, lost = no path
   const heard = sample.metadata.path && sample.metadata.path.length > 0;
   const color = heard ? successRateToColor(1.0) : successRateToColor(0.0); // Green if heard, red if lost
-  const style = { 
+  const style = {
     radius: 4, // Smaller for individual samples
-    weight: 1, 
-    color: color, 
+    weight: 1,
+    color: color,
     fillColor: color,
-    fillOpacity: 0.8 
+    fillOpacity: 0.8
   };
   const marker = L.circleMarker([lat, lon], style);
   const timeValue = sample.metadata.time;
@@ -624,7 +624,7 @@ function buildIndexes(nodes) {
     let coverage = hashToCoverage.get(key);
     const sampleHeard = s.heard || 0;
     const sampleLost = s.lost || 0;
-    
+
     if (!coverage) {
       const { latitude: lat, longitude: lon } = geo.decode(key);
       coverage = {
@@ -687,7 +687,7 @@ function updateRepeatersList(contentDiv) {
 
   // Count geohashes per repeater
   const repeaterGeohashCount = new Map();
-  
+
   let coverageWithRepeaters = 0;
   hashToCoverage.forEach((coverage) => {
     if (coverage.rptr && coverage.rptr.length > 0) {
@@ -734,7 +734,7 @@ function updateRepeatersList(contentDiv) {
 
   // Create simple concise list
   let html = '<div style="padding: 8px;">';
-  
+
   repeaterStats.forEach((repeater) => {
     const prefix = repeater.id.substring(0, 2).toUpperCase();
     html += `<div style="padding: 8px 12px; color: #e2e8f0; border-bottom: 1px solid #4a5568; font-size: 13px; display: flex; justify-content: space-between; align-items: center;">
@@ -745,7 +745,7 @@ function updateRepeatersList(contentDiv) {
       <span style="color: #34d399; font-weight: 600; font-size: 13px;">${repeater.geohashCount}</span>
     </div>`;
   });
-  
+
   html += '</div>';
   contentDiv.innerHTML = html;
 }
@@ -759,7 +759,7 @@ async function loadIndividualSamples() {
       throw new Error(`HTTP ${resp.status} ${resp.statusText}`);
 
     individualSamples = await resp.json();
-    
+
     // Clear sample layer and render with individual samples
     sampleLayer.clearLayers();
     individualSamples.keys.forEach(s => {
