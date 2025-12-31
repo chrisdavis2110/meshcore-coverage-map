@@ -189,6 +189,10 @@ function sampleMarker(s) {
 }
 
 function repeaterMarker(r) {
+  // Ensure repeater ID is normalized to lowercase for consistent matching
+  if (r.id) {
+    r.id = r.id.toLowerCase();
+  }
   const time = fromTruncatedTime(r.time);
   const stale = ageInDays(time) > 2;
   const dead = ageInDays(time) > 8;
@@ -313,12 +317,18 @@ function updateAllEdgeVisibility(end) {
       // e.ends is [repeater, coverage]
       // Check if end matches either the repeater or coverage
       // Use ID comparison instead of object reference to handle multiple repeaters with same ID
-      if (end.id !== undefined && end.lat !== undefined) {
+
+      // Check if it's a repeater (has id, lat, and lon as separate properties)
+      // Repeaters have lat/lon as separate properties, coverage only has pos array
+      if (end.id !== undefined && end.lat !== undefined && end.lon !== undefined) {
         // end is a repeater - compare by ID (case-insensitive)
-        shouldShow = e.ends[0].id?.toLowerCase() === end.id.toLowerCase();
-      } else if (end.id !== undefined && end.pos !== undefined) {
+        const edgeRepeaterId = (e.ends[0].id || '').toLowerCase();
+        const endRepeaterId = (end.id || '').toLowerCase();
+        shouldShow = edgeRepeaterId === endRepeaterId && edgeRepeaterId !== '';
+      } else if (end.id !== undefined && Array.isArray(end.pos) && end.lat === undefined) {
         // end is a coverage - compare by geohash ID
-        shouldShow = e.ends[1].id === end.id;
+        // Also check object reference as fallback
+        shouldShow = e.ends[1].id === end.id || e.ends[1] === end;
       } else {
         // Fallback to object reference comparison
         shouldShow = e.ends.includes(end);
@@ -432,7 +442,11 @@ function buildIndexes(nodes) {
   nodes.repeaters.forEach(r => {
     r.hitBy = [];
     r.pos = [r.lat, r.lon];
-    pushMap(idToRepeaters, r.id, r);
+    // Normalize repeater ID to lowercase for consistent lookup
+    // (coverage.rptr stores IDs as lowercase)
+    const normalizedId = r.id.toLowerCase();
+    r.id = normalizedId; // Normalize the ID in the repeater object itself
+    pushMap(idToRepeaters, normalizedId, r);
   });
 
   // Build connections.

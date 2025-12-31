@@ -346,7 +346,9 @@ function disambiguatePath(lookup, path) {
 
   return path.map(prefix => {
     const resolved = resolvePrefix(lookup, prefix);
-    return resolved.hash || prefix;
+    const result = resolved.hash || prefix;
+    // Normalize to lowercase for consistent matching with repeater IDs
+    return result.toLowerCase();
   });
 }
 

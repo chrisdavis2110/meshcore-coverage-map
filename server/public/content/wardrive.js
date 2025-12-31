@@ -109,6 +109,7 @@ const state = {
   wakeLock: null,
   ignoredId: null, // Allows a repeater to be ignored.
   coveredTiles: new Set(),
+  coveredTilesWithAge: new Map(), // tileId -> timestamp when it was marked as covered
   coverageTiles: new Map(), // tileId -> { o: 0|1, h: 0|1, a: ageInDays }
   locationTimer: null,
   lastPosUpdate: 0, // Timestamp of last location update.
@@ -137,7 +138,19 @@ async function refreshCoverageData() {
     const resp = await fetch("/get-wardrive-coverage");
     const coveredTiles = (await resp.json()) ?? [];
     log(`Got ${coveredTiles.length} covered tiles from service.`);
-    coveredTiles.forEach(x => state.coveredTiles.add(x));
+    const now = Date.now();
+    // Server returns tiles from last 3 days, so assume they're at least 1 day old
+    // to be conservative (existing tiles might be older)
+    const conservativeAge = now - (refreshTileAge * 24 * 60 * 60 * 1000);
+    coveredTiles.forEach(x => {
+      state.coveredTiles.add(x);
+      // Track when we learned about this tile
+      // For existing tiles, use conservative age (refreshTileAge days ago)
+      // This ensures old tiles will be pinged again if they're actually old
+      if (!state.coveredTilesWithAge.has(x)) {
+        state.coveredTilesWithAge.set(x, conservativeAge);
+      }
+    });
   } catch (e) {
     console.error("Getting coverage failed", e);
     setStatus("Get coverage failed", "text-red-300");
@@ -167,7 +180,7 @@ function getCoverageBoxMarker(tileId) {
       return '#398821' // Observed - Green
     if (info.h)
       return '#FEAA2C' // Repeated - Orange
-    return '#E04748' // Miss - Red
+    return '#6A6A6A' // Miss - Gray
   }
 
   const info = state.coverageTiles.get(tileId) || { o: 0, h: 0, a: refreshTileAge + 1 };
@@ -175,12 +188,14 @@ function getCoverageBoxMarker(tileId) {
   const color = getMarkerColor(info);
   const fresh = info.a <= refreshTileAge;
   const fillColor = fresh ? color : fadeColor(color, .4);
+  // Gray tiles (#6A6A6A) should have 33% opacity, others use 60%
+  const fillOpacity = color === '#6A6A6A' ? 0.33 : 0.6;
 
   const style = {
     color: color,
     weight: 1,
     fillColor: fillColor,
-    fillOpacity: 0.6,
+    fillOpacity: fillOpacity,
     pane: "overlayPane",
     interactive: false
   };
@@ -378,7 +393,10 @@ async function updateCurrentPosition() {
   map.panTo(state.currentPos);
 
   const coverageTileId = coverageKey(lat, lon);
-  const needsPing = !state.coveredTiles.has(coverageTileId);
+  // Check if tile needs ping: not in coveredTiles OR older than refreshTileAge days
+  const tileCoveredTime = state.coveredTilesWithAge.get(coverageTileId);
+  const daysSinceCovered = tileCoveredTime ? (Date.now() - tileCoveredTime) / (1000 * 60 * 60 * 24) : Infinity;
+  const needsPing = !state.coveredTiles.has(coverageTileId) || daysSinceCovered > refreshTileAge;
   if (currentTileEl) currentTileEl.innerText = coverageTileId;
   if (currentNeedsPingEl) currentNeedsPingEl.innerText = needsPing ? "✅" : "⛔";
 
@@ -594,7 +612,10 @@ async function sendPing({ auto = false } = {}) {
     }
   } else {
     // Ensure ping is needed in the current tile.
-    const needsPing = !state.coveredTiles.has(coverageTileId);
+    // Check if tile needs ping: not in coveredTiles OR older than refreshTileAge days
+    const tileCoveredTime = state.coveredTilesWithAge.get(coverageTileId);
+    const daysSinceCovered = tileCoveredTime ? (Date.now() - tileCoveredTime) / (1000 * 60 * 60 * 24) : Infinity;
+    const needsPing = !state.coveredTiles.has(coverageTileId) || daysSinceCovered > refreshTileAge;
     if (auto && !needsPing) {
       setStatus("No ping needed", "text-amber-300");
       return;
@@ -669,9 +690,13 @@ async function sendPing({ auto = false } = {}) {
   updateLastSampleInfo();
 
   if (!state.coveredTiles.has(coverageTileId)) {
-    state.coveredTiles.add(coverageTileId);
-    addCoverageBox(coverageTileId);
-  }
+      state.coveredTiles.add(coverageTileId);
+      state.coveredTilesWithAge.set(coverageTileId, Date.now());
+      addCoverageBox(coverageTileId);
+    } else {
+      // Update the age timestamp when we ping it again
+      state.coveredTilesWithAge.set(coverageTileId, Date.now());
+    }
 
   // Wait a bit, then check if the sample was heard
   setTimeout(async () => {

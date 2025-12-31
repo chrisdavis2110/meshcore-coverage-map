@@ -59,9 +59,9 @@ router.get('/get-nodes', async (req, res, next) => {
         agg.rssi = (agg.rssi === null) ? rssi : Math.max(agg.rssi, rssi);
       }
 
-      // Track which repeaters were hit
+      // Track which repeaters were hit (normalize to lowercase)
       path.forEach(repeaterId => {
-        agg.repeaters.add(repeaterId);
+        agg.repeaters.add(repeaterId.toLowerCase());
       });
     });
 

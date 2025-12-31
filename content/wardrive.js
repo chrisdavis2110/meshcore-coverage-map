@@ -127,7 +127,7 @@ async function refreshCoverageData() {
 function getCoverageBoxMarker(tileId) {
   const [minLat, minLon, maxLat, maxLon] = geo.decode_bbox(tileId);
   const style = {
-    color: "#FFAB77",
+    color: "#2780F5",
     weight: 1,
     fillOpacity: 0.4,
   };
