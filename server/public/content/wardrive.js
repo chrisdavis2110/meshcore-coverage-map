@@ -59,7 +59,7 @@ const ignoredRepeaterBtn = $("ignoredRepeaterBtn");
 const wardriveChannelHash = parseInt("e0", 16);
 const wardriveChannelKey = BufferUtils.hexToBytes("4076c315c1ef385fa93f066027320fe5");
 const wardriveChannelName = "#wardrive";
-const refreshTileAge = 1; // Tiles older than this (days) will get pinged again.
+const refreshTileAge = 3; // Tiles older than this (days) will get pinged again.
 
 // --- Global Init ---
 const utf8decoder = new TextDecoder(); // default 'utf-8'
@@ -111,6 +111,7 @@ const state = {
   coveredTiles: new Set(),
   coveredTilesWithAge: new Map(), // tileId -> timestamp when it was marked as covered
   coverageTiles: new Map(), // tileId -> { o: 0|1, h: 0|1, a: ageInDays }
+  tileCoverageData: new Map(), // tileId -> { heard, lost, successRate } from server coverage data
   locationTimer: null,
   lastPosUpdate: 0, // Timestamp of last location update.
   currentPos: [0, 0],
@@ -132,12 +133,98 @@ function formatIsoLocal(iso) {
   return d.toLocaleString();
 }
 
+// Convert success rate (0-1) to a color gradient: green (100%) -> orange -> red (0%)
+function successRateToColor(rate) {
+  const clampedRate = Math.max(0, Math.min(1, rate));
+
+  let red, green, blue;
+
+  if (clampedRate >= 0.75) {
+    // Dark green (0, 100, 0) to lighter green (50, 150, 50) (75-100%)
+    const t = (clampedRate - 0.75) / 0.25;
+    red = Math.round(0 + (50 - 0) * t);
+    green = Math.round(100 + (150 - 100) * t);
+    blue = Math.round(0 + (50 - 0) * t);
+  } else if (clampedRate >= 0.5) {
+    // Light green (50, 150, 50) to orange (255, 165, 0) (50-75%)
+    const t = (clampedRate - 0.5) / 0.25;
+    red = Math.round(50 + (255 - 50) * t);
+    green = Math.round(150 + (165 - 150) * t);
+    blue = Math.round(50 - 50 * t);
+  } else if (clampedRate >= 0.25) {
+    // Orange (255, 165, 0) to red-orange (255, 100, 0) (25-50%)
+    const t = (clampedRate - 0.25) / 0.25;
+    red = 255;
+    green = Math.round(165 + (100 - 165) * t);
+    blue = 0;
+  } else {
+    // Red-orange (255, 100, 0) to red (255, 0, 0) (0-25%)
+    const t = clampedRate / 0.25;
+    red = 255;
+    green = Math.round(100 - 100 * t);
+    blue = 0;
+  }
+
+  const toHex = (n) => {
+    const hex = n.toString(16);
+    return hex.length === 1 ? '0' + hex : hex;
+  };
+
+  return `#${toHex(red)}${toHex(green)}${toHex(blue)}`;
+}
+
 // --- Coverage Functions ---
 async function refreshCoverageData() {
   try {
-    const resp = await fetch("/get-wardrive-coverage");
-    const coveredTiles = (await resp.json()) ?? [];
-    log(`Got ${coveredTiles.length} covered tiles from service.`);
+    // Fetch data from /get-nodes (includes coverage, samples, and repeaters)
+    const resp = await fetch("/get-nodes", { headers: { 'Accept': 'application/json' } });
+    if (!resp.ok) {
+      throw new Error(`HTTP ${resp.status} ${resp.statusText}`);
+    }
+    const nodesData = await resp.json();
+
+    // Extract coverage data (nodesData.coverage uses 'id' instead of 'hash', 'rcv' instead of 'heard')
+    const coverageData = nodesData.coverage || [];
+    const samplesData = nodesData.samples || [];
+
+    // Get tile IDs from both coverage and samples (like the old /get-wardrive-coverage endpoint)
+    const coveredTilesSet = new Set();
+    coverageData.forEach(c => coveredTilesSet.add(c.id));
+    samplesData.forEach(s => coveredTilesSet.add(s.id)); // Samples also have 'id' as the 6-char geohash
+    const coveredTiles = Array.from(coveredTilesSet);
+
+    log(`Got ${coveredTiles.length} covered tiles from service (${coverageData.length} from coverage, ${samplesData.length} from samples).`);
+
+    // Store coverage data for border color calculation
+    coverageData.forEach(c => {
+      // /get-nodes uses 'rcv' for heard, 'id' for hash
+      const heard = c.rcv || 0;
+      const lost = c.lost || 0;
+      const totalSamples = heard + lost;
+      const successRate = totalSamples > 0 ? heard / totalSamples : 0;
+      state.tileCoverageData.set(c.id, {
+        heard: heard,
+        lost: lost,
+        successRate: successRate
+      });
+    });
+
+    // Samples use 'heard' and 'lost' fields directly
+    samplesData.forEach(s => {
+      if (!state.tileCoverageData.has(s.id)) {
+        // Only add if not already in coverage data
+        const heard = s.heard || 0;
+        const lost = s.lost || 0;
+        const totalSamples = heard + lost;
+        const successRate = totalSamples > 0 ? heard / totalSamples : 0;
+        state.tileCoverageData.set(s.id, {
+          heard: heard,
+          lost: lost,
+          successRate: successRate
+        });
+      }
+    });
+
     const now = Date.now();
     // Server returns tiles from last 3 days, so assume they're at least 1 day old
     // to be conservative (existing tiles might be older)
@@ -180,21 +267,43 @@ function getCoverageBoxMarker(tileId) {
       return '#398821' // Observed - Green
     if (info.h)
       return '#FEAA2C' // Repeated - Orange
-    return '#6A6A6A' // Miss - Gray
+    return '#E04748' // Miss - Red
   }
 
   const info = state.coverageTiles.get(tileId) || { o: 0, h: 0, a: refreshTileAge + 1 };
   const [minLat, minLon, maxLat, maxLon] = geo.decode_bbox(tileId);
+
+  // Get border color from coverage data if available, otherwise use marker color
+  let borderColor;
+  const coverageData = state.tileCoverageData.get(tileId);
+  if (coverageData) {
+    // Coverage data exists - use success rate to determine border color
+    const totalSamples = coverageData.heard + coverageData.lost;
+    if (totalSamples > 0) {
+      // Use success rate to determine border color (green/orange/red gradient)
+      borderColor = successRateToColor(coverageData.successRate);
+    } else {
+      // Coverage data exists but no samples yet - use neutral gray
+      borderColor = '#6A6A6A';
+    }
+  } else {
+    // No coverage data for this tile - use neutral gray
+    borderColor = '#6A6A6A';
+  }
+
   const color = getMarkerColor(info);
   const fresh = info.a <= refreshTileAge;
   const fillColor = fresh ? color : fadeColor(color, .4);
+  // Fill should be gray initially if no ping data, otherwise use marker color
+  const finalFillColor = (info.o === 0 && info.h === 0) ? '#6A6A6A' : fillColor;
+  // Gray fill for initial state, red fill for missed pings
   // Gray tiles (#6A6A6A) should have 33% opacity, others use 60%
-  const fillOpacity = color === '#6A6A6A' ? 0.33 : 0.6;
+  const fillOpacity = finalFillColor === '#6A6A6A' ? 0.33 : 0.6;
 
   const style = {
-    color: color,
+    color: borderColor,
     weight: 1,
-    fillColor: fillColor,
+    fillColor: finalFillColor,
     fillOpacity: fillOpacity,
     pane: "overlayPane",
     interactive: false
