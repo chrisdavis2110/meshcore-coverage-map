@@ -38,6 +38,8 @@ services:
       - "${HTTP_PORT:-3000}:3000"
       - "${HTTPS_PORT:-3443}:3443"
     volumes:
+      - ./server:/app
+      - /app/node_modules
       - ./server/ssl:/app/ssl:ro
     depends_on:
       db:

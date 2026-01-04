@@ -26,6 +26,10 @@
     "OHMC Repeater",
     "Ruth Bader Ginsburg",
     "Nullrouten observer"
-  ]
-}
+  ],
 
+  "repeater_overrides": {
+    "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1": [37.4241, -121.9756],
+    "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2": [37.3382, -121.8863]
+  }
+}

@@ -121,6 +121,30 @@ Currently configured to watch:
 
 Only messages from these observers will be processed.
 
+### Repeater Location Overrides
+
+You can specify fixed locations for specific repeaters by full public key. This is useful when:
+- A repeater's location in MQTT packets is incorrect or missing
+- You want to manually set a known repeater location
+- A repeater is mobile but you want to track it at a fixed location
+
+Add a `repeater_overrides` section to `config.json`:
+
+```json
+{
+  "repeater_overrides": {
+    "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1": [37.4241, -121.9756],
+    "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2": [37.3382, -121.8863]
+  }
+}
+```
+
+Where:
+- Keys are full public keys (64-character hex, case-insensitive)
+- Values are `[latitude, longitude]` arrays
+
+When a repeater's public key matches an override, the configured location will be used instead of the location from the MQTT packet. If a repeater has an override but no location in the packet, the override will still be used.
+
 ## Troubleshooting
 
 ### Connection Issues
@@ -140,4 +164,3 @@ Only messages from these observers will be processed.
 - Verify `service_host` is correct
 - Check that the API server is running
 - Review API logs for error details
-

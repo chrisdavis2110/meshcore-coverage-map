@@ -296,12 +296,12 @@ function getCoverageBoxMarker(tileId) {
   const fillColor = fresh ? color : fadeColor(color, .4);
   // Fill should be gray initially if no ping data, otherwise use marker color
   const finalFillColor = (info.o === 0 && info.h === 0) ? '#6A6A6A' : fillColor;
-  // Gray fill for initial state, red fill for missed pings
   // Gray tiles (#6A6A6A) should have 33% opacity, others use 60%
   const fillOpacity = finalFillColor === '#6A6A6A' ? 0.33 : 0.6;
+  const finalBorderColor = (info.o === 0 && info.h === 0) ? borderColor : color;
 
   const style = {
-    color: borderColor,
+    color: finalBorderColor,
     weight: 1,
     fillColor: finalFillColor,
     fillOpacity: fillOpacity,
@@ -764,9 +764,17 @@ async function sendPing({ auto = false } = {}) {
     // Send sample to service.
     try {
       const data = { lat, lon };
+      // Include observer name (device name or "wardrive-user")
+      const observerName = state.selfInfo?.name || "wardrive-user";
+      data.observer = observerName;
+
       if (repeat) {
         data.path = [repeat.repeater];
         data.observed = true; // We heard a repeat, so this is observed
+        // Include full public key if available
+        if (repeat.pubkey) {
+          data.repeaterPubkey = repeat.pubkey;
+        }
         if (!repeat.hitMobileRepeater) {
           // Don't include signal info when using a mobile repeater.
           data.snr = repeat.lastSnr;
@@ -1017,7 +1025,7 @@ function onDisconnected() {
   setStatus("Disconnected", "text-red-300");
 }
 
-function onLogRxData(frame) {
+async function onLogRxData(frame) {
   const lastSnr = frame.lastSnr;
   const lastRssi = frame.lastRssi;
   let hitMobileRepeater = false;
@@ -1030,10 +1038,47 @@ function onLogRxData(frame) {
     return;
 
   // First repeater (ignoring mobile repeater).
-  let firstRepeater = packet.path[0].toString(16);
+  // packet.path is a Uint8Array where each element is 1 byte (first byte of public key)
+  let firstRepeaterPrefix = packet.path[0];
+  let firstRepeaterPubkey = null;
+
+  // Try to look up full public key from contacts
+  if (state.connection) {
+    try {
+      const contacts = await state.connection.getContacts();
+      // Find contact matching the prefix (first byte of public key)
+      const matchingContact = contacts.find(c => c.publicKey && c.publicKey[0] === firstRepeaterPrefix);
+      if (matchingContact && matchingContact.publicKey) {
+        // Convert 32-byte public key to 64-char hex string
+        firstRepeaterPubkey = Array.from(matchingContact.publicKey)
+          .map(b => b.toString(16).padStart(2, '0'))
+          .join('');
+      }
+    } catch (e) {
+      console.debug("Failed to get contacts for pubkey lookup:", e);
+    }
+  }
+
+  let firstRepeater = firstRepeaterPrefix.toString(16).padStart(2, '0');
   if (firstRepeater === state.ignoredId) {
-    firstRepeater = packet.path[1]?.toString(16);
+    firstRepeaterPrefix = packet.path[1];
+    firstRepeater = firstRepeaterPrefix?.toString(16).padStart(2, '0');
     hitMobileRepeater = true;
+
+    // Try to look up full public key for second repeater too
+    if (state.connection && firstRepeaterPrefix !== undefined) {
+      try {
+        const contacts = await state.connection.getContacts();
+        const matchingContact = contacts.find(c => c.publicKey && c.publicKey[0] === firstRepeaterPrefix);
+        if (matchingContact && matchingContact.publicKey) {
+          firstRepeaterPubkey = Array.from(matchingContact.publicKey)
+            .map(b => b.toString(16).padStart(2, '0'))
+            .join('');
+        }
+      } catch (e) {
+        console.debug("Failed to get contacts for pubkey lookup:", e);
+      }
+    }
   }
 
   // No valid path.
@@ -1063,6 +1108,7 @@ function onLogRxData(frame) {
     repeatEmitter.dispatchEvent(new CustomEvent("repeat", {
       detail: {
         repeater: firstRepeater,
+        pubkey: firstRepeaterPubkey, // Full public key if available
         text: msgText,
         hitMobileRepeater: hitMobileRepeater,
         lastSnr: lastSnr,

@@ -21,6 +21,8 @@ router.get('/get-nodes', async (req, res, next) => {
 
     // Aggregate samples by 6-character geohash prefix
     const sampleAggregates = new Map(); // geohash prefix -> { total, heard, lastTime, repeaters: Set, snr, rssi }
+    // Track driver stats (observer -> sample count)
+    const driverStats = new Map(); // observer name -> count
 
     samples.keys.forEach(s => {
       const prefix = s.name.substring(0, 6); // 6-char geohash prefix
@@ -32,6 +34,12 @@ router.get('/get-nodes', async (req, res, next) => {
       const time = s.metadata.time || 0;
       const snr = s.metadata.snr ?? null;
       const rssi = s.metadata.rssi ?? null;
+      const observer = s.metadata.observer;
+
+      // Track driver stats
+      if (observer) {
+        driverStats.set(observer, (driverStats.get(observer) || 0) + 1);
+      }
 
       if (!sampleAggregates.has(prefix)) {
         sampleAggregates.set(prefix, {
@@ -93,6 +101,11 @@ router.get('/get-nodes', async (req, res, next) => {
       return item;
     });
 
+    // Convert driver stats to array and sort by count
+    const drivers = Array.from(driverStats.entries())
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count);
+
     const responseData = {
       coverage: coverage.map(c => {
         const lastHeard = c.lastHeard || 0;
@@ -131,7 +144,8 @@ router.get('/get-nodes', async (req, res, next) => {
         lat: r.metadata.lat,
         lon: r.metadata.lon,
         elev: Math.round(r.metadata.elev || 0),
-      }))
+      })),
+      drivers: drivers
     };
 
     res.json(responseData);

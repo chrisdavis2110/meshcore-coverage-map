@@ -22,7 +22,8 @@ let showSamples = false;
 
 // Data
 let nodes = null; // Graph data from the last refresh
-let idToRepeaters = null; // Index of id -> [repeater]
+let idToRepeaters = null; // Index of pubkey (or id if no pubkey) -> [repeater]
+let idToRepeatersById = null; // Index of 2-char id -> [repeater] for matching coverage.rptr
 let hashToCoverage = null; // Index of geohash -> coverage
 let edgeList = null; // List of connected repeater and coverage
 let individualSamples = null; // Individual (non-aggregated) samples
@@ -122,7 +123,21 @@ repeatersControl.onAdd = m => {
       box-shadow: 0 2px 4px rgba(0,0,0,0.2);
       white-space: nowrap;
       width: 100%;
+      margin-bottom: 4px;
     ">Top Repeaters</button>
+    <button id="drivers-button" style="
+      background: #4a5568;
+      color: white;
+      border: 1px solid #718096;
+      border-radius: 4px;
+      padding: 8px 12px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+      white-space: nowrap;
+      width: 100%;
+    ">Top Drivers</button>
     <div id="repeaters-list" style="
       display: none;
       margin-top: 4px;
@@ -140,30 +155,66 @@ repeatersControl.onAdd = m => {
       </div>
       <div id="repeaters-list-content" style="padding: 0;"></div>
     </div>
+    <div id="drivers-list" style="
+      display: none;
+      margin-top: 4px;
+      background: #2d3748;
+      border: 1px solid #4a5568;
+      border-radius: 4px;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+      width: 100%;
+      max-width: 400px;
+      max-height: 500px;
+      overflow-y: auto;
+    ">
+      <div style="padding: 12px; background: #1a202c; border-bottom: 1px solid #4a5568; font-weight: 600; color: #e2e8f0; position: sticky; top: 0;">
+        Drivers by Samples
+      </div>
+      <div id="drivers-list-content" style="padding: 0;"></div>
+    </div>
   `;
 
-  const button = div.querySelector("#repeaters-button");
-  const list = div.querySelector("#repeaters-list");
-  const content = div.querySelector("#repeaters-list-content");
+  const repeatersButton = div.querySelector("#repeaters-button");
+  const repeatersList = div.querySelector("#repeaters-list");
+  const repeatersContent = div.querySelector("#repeaters-list-content");
+  const driversButton = div.querySelector("#drivers-button");
+  const driversList = div.querySelector("#drivers-list");
+  const driversContent = div.querySelector("#drivers-list-content");
 
-  button.addEventListener("click", (e) => {
+  repeatersButton.addEventListener("click", (e) => {
     e.stopPropagation();
-    if (list.style.display === "none") {
-      updateRepeatersList(content);
-      list.style.display = "block";
+    driversList.style.display = "none"; // Close drivers list
+    if (repeatersList.style.display === "none") {
+      updateRepeatersList(repeatersContent);
+      repeatersList.style.display = "block";
     } else {
-      list.style.display = "none";
+      repeatersList.style.display = "none";
+    }
+  });
+
+  driversButton.addEventListener("click", (e) => {
+    e.stopPropagation();
+    repeatersList.style.display = "none"; // Close repeaters list
+    if (driversList.style.display === "none") {
+      updateDriversList(driversContent);
+      driversList.style.display = "block";
+    } else {
+      driversList.style.display = "none";
     }
   });
 
   // Close when clicking outside (use the map parameter 'm' passed to onAdd)
   const closeHandler = () => {
-    list.style.display = "none";
+    repeatersList.style.display = "none";
+    driversList.style.display = "none";
   };
   m.on("click", closeHandler);
 
-  // Prevent clicks inside the list from closing it
-  list.addEventListener("click", (e) => {
+  // Prevent clicks inside the lists from closing them
+  repeatersList.addEventListener("click", (e) => {
+    e.stopPropagation();
+  });
+  driversList.addEventListener("click", (e) => {
     e.stopPropagation();
   });
 
@@ -469,9 +520,13 @@ function repeaterMarker(r) {
   const stale = ageInDays(time) > 2;
   const dead = ageInDays(time) > 8;
   const ageClass = (dead ? "dead" : (stale ? "stale" : ""));
+
+  // Display only first 2 chars in the circle (for backward compatibility)
+  const displayId = r.id.substring(0, 2).toUpperCase();
+
   const icon = L.divIcon({
     className: '', // Don't use default Leaflet style.
-    html: `<div class="repeater-dot ${ageClass}"><span>${r.id}</span></div>`,
+    html: `<div class="repeater-dot ${ageClass}"><span>${displayId}</span></div>`,
     iconSize: [20, 20],
     iconAnchor: [10, 10]
   });
@@ -593,10 +648,11 @@ function updateAllEdgeVisibility(end) {
       // Check if it's a repeater (has id, lat, and lon as separate properties)
       // Repeaters have lat/lon as separate properties, coverage only has pos array
       if (end.id !== undefined && end.lat !== undefined && end.lon !== undefined) {
-        // end is a repeater - compare by ID (case-insensitive)
-        const edgeRepeaterId = (e.ends[0].id || '').toLowerCase();
-        const endRepeaterId = (end.id || '').toLowerCase();
-        shouldShow = edgeRepeaterId === endRepeaterId && edgeRepeaterId !== '';
+        // end is a repeater - compare by pubkey first, then fall back to ID (case-insensitive)
+        const edgeRepeater = e.ends[0];
+        const edgeKey = (edgeRepeater.pubkey || edgeRepeater.id || '').toLowerCase();
+        const endKey = (end.pubkey || end.id || '').toLowerCase();
+        shouldShow = edgeKey === endKey && edgeKey !== '';
       } else if (end.id !== undefined && Array.isArray(end.pos) && end.lat === undefined) {
         // end is a coverage - compare by geohash ID
         // Also check object reference as fallback
@@ -662,7 +718,18 @@ function renderNodes(nodes) {
   });
 
   // Add edges.
+  // Use pubkey (or id) as key to ensure edges are unique per repeater pubkey
+  const edgeKeys = new Set();
   edgeList.forEach(e => {
+    const edgeKey = e.key || (e.repeater.pubkey || e.repeater.id);
+
+    // Skip duplicate edges (same repeater pubkey to same coverage)
+    const uniqueKey = `${edgeKey}-${e.coverage.id}`;
+    if (edgeKeys.has(uniqueKey)) {
+      return;
+    }
+    edgeKeys.add(uniqueKey);
+
     const style = {
       weight: 2,
       opacity: 0,
@@ -678,6 +745,7 @@ function renderNodes(nodes) {
 function buildIndexes(nodes) {
   hashToCoverage = new Map();
   idToRepeaters = new Map();
+  idToRepeatersById = new Map();
   edgeList = [];
 
   // Index coverage items.
@@ -743,6 +811,7 @@ function buildIndexes(nodes) {
   });
 
   // Index repeaters.
+  idToRepeatersById = new Map(); // Clear and rebuild
   nodes.repeaters.forEach(r => {
     r.hitBy = [];
     r.pos = [r.lat, r.lon];
@@ -750,19 +819,34 @@ function buildIndexes(nodes) {
     // (coverage.rptr stores IDs as lowercase)
     const normalizedId = r.id.toLowerCase();
     r.id = normalizedId; // Normalize the ID in the repeater object itself
-    pushMap(idToRepeaters, normalizedId, r);
+
+    // Normalize pubkey if available
+    r.pubkey = r.pubkey ? r.pubkey.toLowerCase() : null;
+
+    // Use full public key as primary key if available, otherwise fall back to ID
+    // This ensures edges are unique per pubkey
+    const key = r.pubkey || normalizedId;
+    pushMap(idToRepeaters, key, r);
+
+    // Also index by 2-char ID for matching coverage.rptr (which only has IDs)
+    pushMap(idToRepeatersById, normalizedId, r);
   });
 
   // Build connections.
+  // coverage.rptr contains 2-char IDs, but we want to use full pubkeys for edges
   hashToCoverage.entries().forEach(([key, coverage]) => {
-    coverage.rptr.forEach(r => {
-      const candidateRepeaters = idToRepeaters.get(r);
+    coverage.rptr.forEach(rId => {
+      // Look up by 2-char ID first (coverage.rptr only has IDs)
+      const candidateRepeaters = idToRepeatersById.get(rId);
       if (candidateRepeaters === undefined)
         return;
 
       const bestRepeater = getBestRepeater(coverage.pos, candidateRepeaters);
       bestRepeater.hitBy.push(coverage);
-      edgeList.push({ repeater: bestRepeater, coverage: coverage });
+
+      // Use pubkey (or id) as the edge key for uniqueness
+      const edgeKey = bestRepeater.pubkey || bestRepeater.id;
+      edgeList.push({ repeater: bestRepeater, coverage: coverage, key: edgeKey });
     });
   });
 }
@@ -839,6 +923,41 @@ function updateRepeatersList(contentDiv) {
   contentDiv.innerHTML = html;
 }
 
+// Update drivers list content
+function updateDriversList(contentDiv) {
+  if (!nodes || !nodes.drivers) {
+    contentDiv.innerHTML = '<div style="padding: 20px; color: #e2e8f0; text-align: center;">No driver data available.<br/>Please refresh the map first.</div>';
+    return;
+  }
+
+  const drivers = nodes.drivers || [];
+
+  if (drivers.length === 0) {
+    contentDiv.innerHTML = `<div style="padding: 20px; color: #e2e8f0; text-align: center;">
+      No drivers found.<br/><br/>
+      <div style="font-size: 11px; color: #9ca3af; margin-top: 8px;">
+        Drivers are tracked when samples include observer information.
+      </div>
+    </div>`;
+    return;
+  }
+
+  // Create simple concise list
+  let html = '<div style="padding: 8px;">';
+
+  drivers.forEach((driver) => {
+    html += `<div style="padding: 8px 12px; color: #e2e8f0; border-bottom: 1px solid #4a5568; font-size: 13px; display: flex; justify-content: space-between; align-items: center;">
+      <div style="display: flex; gap: 12px; align-items: center;">
+        <span style="font-weight: 500;">${escapeHtml(driver.name)}</span>
+      </div>
+      <span style="color: #34d399; font-weight: 600; font-size: 13px;">${driver.count}</span>
+    </div>`;
+  });
+
+  html += '</div>';
+  contentDiv.innerHTML = html;
+}
+
 async function loadIndividualSamples() {
   try {
     const endpoint = "/get-samples";
@@ -875,4 +994,11 @@ export async function refreshCoverage() {
   nodes = await resp.json();
   buildIndexes(nodes);
   renderNodes(nodes);
+
+  // Update drivers list if it's open
+  const driversList = document.getElementById("drivers-list");
+  const driversContent = document.getElementById("drivers-list-content");
+  if (driversList && driversContent && driversList.style.display !== "none") {
+    updateDriversList(driversContent);
+  }
 }
