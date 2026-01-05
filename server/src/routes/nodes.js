@@ -21,9 +21,41 @@ router.get('/get-nodes', async (req, res, next) => {
 
     // Aggregate samples by 6-character geohash prefix
     const sampleAggregates = new Map(); // geohash prefix -> { total, heard, lastTime, repeaters: Set, snr, rssi }
-    // Track driver stats (observer -> sample count)
-    const driverStats = new Map(); // observer name -> count
+    // Track driver stats (observer -> { count, heard, lost })
+    // Only include drivers from wardrive app (nodes sending pings), not MQTT observers
+    // Strategy: First pass - identify wardrive app observers (those with at least one sample with snr/rssi)
+    // Second pass - include all samples from identified wardrive app observers
+    const wardriveAppObservers = new Set(); // observers known to be from wardrive app
+    const driverStats = new Map(); // observer name -> { count, heard, lost }
 
+    // First pass: identify wardrive app observers
+    // Strategy: Since MQTT observers no longer have observer field, ANY sample with observer field is from wardrive app
+    // MQTT observers: don't have observer field (we removed it from the scraper)
+    // Wardrive app: always has observer field (device name or "wardrive-user")
+    // Note: Old MQTT data might still have observer fields, but those should be cleaned up with the script
+    const allObservers = new Set();
+    samples.keys.forEach(s => {
+      const observer = s.metadata.observer;
+
+      // Track all observers for debugging
+      if (observer) {
+        allObservers.add(observer);
+      }
+
+      // Any sample with observer field is from wardrive app
+      // (New MQTT samples don't have observer field anymore)
+      if (observer) {
+        wardriveAppObservers.add(observer);
+      }
+    });
+
+    // Debug logging (remove after testing)
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`[DEBUG] Found ${allObservers.size} unique observers:`, Array.from(allObservers));
+      console.log(`[DEBUG] Identified ${wardriveAppObservers.size} wardrive app observers:`, Array.from(wardriveAppObservers));
+    }
+
+    // Second pass: track stats for all samples from wardrive app observers
     samples.keys.forEach(s => {
       const prefix = s.name.substring(0, 6); // 6-char geohash prefix
       const rawPath = s.metadata.path || [];
@@ -36,9 +68,22 @@ router.get('/get-nodes', async (req, res, next) => {
       const rssi = s.metadata.rssi ?? null;
       const observer = s.metadata.observer;
 
-      // Track driver stats
-      if (observer) {
-        driverStats.set(observer, (driverStats.get(observer) || 0) + 1);
+      // Track driver stats - only for wardrive app users (nodes sending pings)
+      // Include if observer is known to be from wardrive app
+      // All wardrive app samples have observer field, MQTT samples don't (after our changes)
+      const isWardriveApp = observer && wardriveAppObservers.has(observer);
+
+      if (isWardriveApp) {
+        if (!driverStats.has(observer)) {
+          driverStats.set(observer, { count: 0, heard: 0, lost: 0 });
+        }
+        const stats = driverStats.get(observer);
+        stats.count++;
+        if (heard) {
+          stats.heard++;
+        } else {
+          stats.lost++;
+        }
       }
 
       if (!sampleAggregates.has(prefix)) {
@@ -101,10 +146,67 @@ router.get('/get-nodes', async (req, res, next) => {
       return item;
     });
 
-    // Convert driver stats to array and sort by count
-    const drivers = Array.from(driverStats.entries())
-      .map(([name, count]) => ({ name, count }))
-      .sort((a, b) => b.count - a.count);
+    // Convert driver stats to array and apply filters
+    const minCount = req.query.minCount ? parseInt(req.query.minCount) : null;
+    const maxCount = req.query.maxCount ? parseInt(req.query.maxCount) : null;
+    const minHeard = req.query.minHeard ? parseInt(req.query.minHeard) : null;
+    const maxHeard = req.query.maxHeard ? parseInt(req.query.maxHeard) : null;
+    const minLost = req.query.minLost ? parseInt(req.query.minLost) : null;
+    const maxLost = req.query.maxLost ? parseInt(req.query.maxLost) : null;
+    const minPercent = req.query.minPercent ? parseFloat(req.query.minPercent) : null;
+    const maxPercent = req.query.maxPercent ? parseFloat(req.query.maxPercent) : null;
+    const sortBy = req.query.sortBy || 'count'; // 'count', 'heard', 'lost', 'percent'
+    const sortOrder = req.query.sortOrder || 'desc'; // 'asc' or 'desc'
+
+    let drivers = Array.from(driverStats.entries())
+      .map(([name, stats]) => {
+        const total = stats.count;
+        const heard = stats.heard;
+        const lost = stats.lost;
+        const heardPercent = total > 0 ? (heard / total) * 100 : 0;
+        return {
+          name,
+          count: total,
+          heard,
+          lost,
+          heardPercent: Math.round(heardPercent * 10) / 10 // Round to 1 decimal place
+        };
+      })
+      .filter(driver => {
+        // Apply filters
+        if (minCount !== null && driver.count < minCount) return false;
+        if (maxCount !== null && driver.count > maxCount) return false;
+        if (minHeard !== null && driver.heard < minHeard) return false;
+        if (maxHeard !== null && driver.heard > maxHeard) return false;
+        if (minLost !== null && driver.lost < minLost) return false;
+        if (maxLost !== null && driver.lost > maxLost) return false;
+        if (minPercent !== null && driver.heardPercent < minPercent) return false;
+        if (maxPercent !== null && driver.heardPercent > maxPercent) return false;
+        return true;
+      })
+      .sort((a, b) => {
+        let aVal, bVal;
+        switch (sortBy) {
+          case 'heard':
+            aVal = a.heard;
+            bVal = b.heard;
+            break;
+          case 'lost':
+            aVal = a.lost;
+            bVal = b.lost;
+            break;
+          case 'percent':
+            aVal = a.heardPercent;
+            bVal = b.heardPercent;
+            break;
+          case 'count':
+          default:
+            aVal = a.count;
+            bVal = b.count;
+            break;
+        }
+        return sortOrder === 'asc' ? aVal - bVal : bVal - aVal;
+      });
 
     const responseData = {
       coverage: coverage.map(c => {

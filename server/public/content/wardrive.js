@@ -753,9 +753,10 @@ async function sendPing({ auto = false } = {}) {
   let repeat = null;
   if (sentToMesh) {
     try {
-      repeat = await listenForRepeat(text);
+      repeat = await listenForRepeat(text, 2500);
       log(`Heard repeat from ${repeat.repeater}`);
     } catch {
+      log("waited 2.5 seconds for repeat");
       log("Didn't hear a repeat in time, assuming lost.");
     }
   }
@@ -780,6 +781,9 @@ async function sendPing({ auto = false } = {}) {
           data.snr = repeat.lastSnr;
           data.rssi = repeat.lastRssi;
         }
+      } else {
+        // No repeat heard - explicitly mark as not observed (miss) for driver stats
+        data.observed = false;
       }
 
       await fetch("/put-sample", {

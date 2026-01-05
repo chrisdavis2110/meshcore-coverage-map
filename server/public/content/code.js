@@ -27,6 +27,7 @@ let idToRepeatersById = null; // Index of 2-char id -> [repeater] for matching c
 let hashToCoverage = null; // Index of geohash -> coverage
 let edgeList = null; // List of connected repeater and coverage
 let individualSamples = null; // Individual (non-aggregated) samples
+let driverFilters = {}; // Driver filter state
 
 // Map layers (will be initialized after map is created)
 let coverageLayer = null;
@@ -167,8 +168,174 @@ repeatersControl.onAdd = m => {
       max-height: 500px;
       overflow-y: auto;
     ">
-      <div style="padding: 12px; background: #1a202c; border-bottom: 1px solid #4a5568; font-weight: 600; color: #e2e8f0; position: sticky; top: 0;">
-        Drivers by Samples
+      <div style="padding: 12px; background: #1a202c; border-bottom: 1px solid #4a5568; font-weight: 600; color: #e2e8f0; position: sticky; top: 0; display: flex; justify-content: space-between; align-items: center;">
+        <span>Drivers by Samples</span>
+        <button id="drivers-filter-btn" style="
+          background: #4a5568;
+          color: white;
+          border: 1px solid #718096;
+          border-radius: 4px;
+          padding: 4px 8px;
+          cursor: pointer;
+          font-size: 12px;
+          font-weight: 500;
+        ">Filter</button>
+      </div>
+      <div id="drivers-filter-panel" style="
+        display: none;
+        padding: 12px;
+        background: #1a202c;
+        border-bottom: 1px solid #4a5568;
+      ">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;">
+          <div>
+            <label style="display: block; font-size: 11px; color: #9ca3af; margin-bottom: 4px;">Min Samples</label>
+            <input type="number" id="filter-min-count" placeholder="0" style="
+              width: 100%;
+              padding: 4px 6px;
+              background: #2d3748;
+              border: 1px solid #4a5568;
+              border-radius: 4px;
+              color: #e2e8f0;
+              font-size: 12px;
+            ">
+          </div>
+          <div>
+            <label style="display: block; font-size: 11px; color: #9ca3af; margin-bottom: 4px;">Max Samples</label>
+            <input type="number" id="filter-max-count" placeholder="∞" style="
+              width: 100%;
+              padding: 4px 6px;
+              background: #2d3748;
+              border: 1px solid #4a5568;
+              border-radius: 4px;
+              color: #e2e8f0;
+              font-size: 12px;
+            ">
+          </div>
+          <div>
+            <label style="display: block; font-size: 11px; color: #9ca3af; margin-bottom: 4px;">Min Hits</label>
+            <input type="number" id="filter-min-heard" placeholder="0" style="
+              width: 100%;
+              padding: 4px 6px;
+              background: #2d3748;
+              border: 1px solid #4a5568;
+              border-radius: 4px;
+              color: #e2e8f0;
+              font-size: 12px;
+            ">
+          </div>
+          <div>
+            <label style="display: block; font-size: 11px; color: #9ca3af; margin-bottom: 4px;">Max Hits</label>
+            <input type="number" id="filter-max-heard" placeholder="∞" style="
+              width: 100%;
+              padding: 4px 6px;
+              background: #2d3748;
+              border: 1px solid #4a5568;
+              border-radius: 4px;
+              color: #e2e8f0;
+              font-size: 12px;
+            ">
+          </div>
+          <div>
+            <label style="display: block; font-size: 11px; color: #9ca3af; margin-bottom: 4px;">Min Misses</label>
+            <input type="number" id="filter-min-lost" placeholder="0" style="
+              width: 100%;
+              padding: 4px 6px;
+              background: #2d3748;
+              border: 1px solid #4a5568;
+              border-radius: 4px;
+              color: #e2e8f0;
+              font-size: 12px;
+            ">
+          </div>
+          <div>
+            <label style="display: block; font-size: 11px; color: #9ca3af; margin-bottom: 4px;">Max Misses</label>
+            <input type="number" id="filter-max-lost" placeholder="∞" style="
+              width: 100%;
+              padding: 4px 6px;
+              background: #2d3748;
+              border: 1px solid #4a5568;
+              border-radius: 4px;
+              color: #e2e8f0;
+              font-size: 12px;
+            ">
+          </div>
+          <div>
+            <label style="display: block; font-size: 11px; color: #9ca3af; margin-bottom: 4px;">Min %</label>
+            <input type="number" id="filter-min-percent" placeholder="0" min="0" max="100" step="0.1" style="
+              width: 100%;
+              padding: 4px 6px;
+              background: #2d3748;
+              border: 1px solid #4a5568;
+              border-radius: 4px;
+              color: #e2e8f0;
+              font-size: 12px;
+            ">
+          </div>
+          <div>
+            <label style="display: block; font-size: 11px; color: #9ca3af; margin-bottom: 4px;">Max %</label>
+            <input type="number" id="filter-max-percent" placeholder="100" min="0" max="100" step="0.1" style="
+              width: 100%;
+              padding: 4px 6px;
+              background: #2d3748;
+              border: 1px solid #4a5568;
+              border-radius: 4px;
+              color: #e2e8f0;
+              font-size: 12px;
+            ">
+          </div>
+        </div>
+        <div style="display: flex; gap: 8px; margin-top: 8px;">
+          <select id="filter-sort-by" style="
+            flex: 1;
+            padding: 4px 6px;
+            background: #2d3748;
+            border: 1px solid #4a5568;
+            border-radius: 4px;
+            color: #e2e8f0;
+            font-size: 12px;
+          ">
+            <option value="count">Sort by Count</option>
+            <option value="heard">Sort by Hits</option>
+            <option value="lost">Sort by Misses</option>
+            <option value="percent">Sort by %</option>
+          </select>
+          <select id="filter-sort-order" style="
+            padding: 4px 6px;
+            background: #2d3748;
+            border: 1px solid #4a5568;
+            border-radius: 4px;
+            color: #e2e8f0;
+            font-size: 12px;
+          ">
+            <option value="desc">Desc</option>
+            <option value="asc">Asc</option>
+          </select>
+        </div>
+        <div style="display: flex; gap: 8px; margin-top: 8px;">
+          <button id="drivers-filter-apply" style="
+            flex: 1;
+            padding: 6px 12px;
+            background: #4a5568;
+            color: white;
+            border: 1px solid #718096;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 500;
+          ">Apply</button>
+          <button id="drivers-filter-clear" style="
+            flex: 1;
+            padding: 6px 12px;
+            background: #4a5568;
+            color: white;
+            border: 1px solid #718096;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 500;
+          ">Clear</button>
+        </div>
       </div>
       <div id="drivers-list-content" style="padding: 0;"></div>
     </div>
@@ -202,6 +369,72 @@ repeatersControl.onAdd = m => {
       driversList.style.display = "none";
     }
   });
+
+  // Filter button handlers
+  const driversFilterBtn = div.querySelector("#drivers-filter-btn");
+  const driversFilterPanel = div.querySelector("#drivers-filter-panel");
+  const driversFilterApply = div.querySelector("#drivers-filter-apply");
+  const driversFilterClear = div.querySelector("#drivers-filter-clear");
+
+  if (driversFilterBtn) {
+    driversFilterBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const isVisible = driversFilterPanel.style.display !== "none";
+      driversFilterPanel.style.display = isVisible ? "none" : "block";
+    });
+  }
+
+  if (driversFilterApply) {
+    driversFilterApply.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      // Collect filter values
+      driverFilters = {
+        minCount: document.getElementById("filter-min-count")?.value || null,
+        maxCount: document.getElementById("filter-max-count")?.value || null,
+        minHeard: document.getElementById("filter-min-heard")?.value || null,
+        maxHeard: document.getElementById("filter-max-heard")?.value || null,
+        minLost: document.getElementById("filter-min-lost")?.value || null,
+        maxLost: document.getElementById("filter-max-lost")?.value || null,
+        minPercent: document.getElementById("filter-min-percent")?.value || null,
+        maxPercent: document.getElementById("filter-max-percent")?.value || null,
+        sortBy: document.getElementById("filter-sort-by")?.value || "count",
+        sortOrder: document.getElementById("filter-sort-order")?.value || "desc"
+      };
+
+      // Remove null/empty values
+      Object.keys(driverFilters).forEach(key => {
+        if (driverFilters[key] === null || driverFilters[key] === "") {
+          delete driverFilters[key];
+        }
+      });
+
+      // Refresh data with filters
+      await refreshCoverage();
+      updateDriversList(driversContent);
+    });
+  }
+
+  if (driversFilterClear) {
+    driversFilterClear.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      // Clear all filter inputs
+      const inputs = ["filter-min-count", "filter-max-count", "filter-min-heard", "filter-max-heard",
+                     "filter-min-lost", "filter-max-lost", "filter-min-percent", "filter-max-percent"];
+      inputs.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = "";
+      });
+      const sortBy = document.getElementById("filter-sort-by");
+      const sortOrder = document.getElementById("filter-sort-order");
+      if (sortBy) sortBy.value = "count";
+      if (sortOrder) sortOrder.value = "desc";
+
+      // Clear filter state and refresh
+      driverFilters = {};
+      await refreshCoverage();
+      updateDriversList(driversContent);
+    });
+  }
 
   // Close when clicking outside (use the map parameter 'm' passed to onAdd)
   const closeHandler = () => {
@@ -936,7 +1169,7 @@ function updateDriversList(contentDiv) {
     contentDiv.innerHTML = `<div style="padding: 20px; color: #e2e8f0; text-align: center;">
       No drivers found.<br/><br/>
       <div style="font-size: 11px; color: #9ca3af; margin-top: 8px;">
-        Drivers are tracked when samples include observer information.
+        Drivers are tracked from wardrive app users.
       </div>
     </div>`;
     return;
@@ -946,11 +1179,26 @@ function updateDriversList(contentDiv) {
   let html = '<div style="padding: 8px;">';
 
   drivers.forEach((driver) => {
-    html += `<div style="padding: 8px 12px; color: #e2e8f0; border-bottom: 1px solid #4a5568; font-size: 13px; display: flex; justify-content: space-between; align-items: center;">
-      <div style="display: flex; gap: 12px; align-items: center;">
-        <span style="font-weight: 500;">${escapeHtml(driver.name)}</span>
+    const heardPercent = driver.heardPercent ?? (driver.count > 0 ? ((driver.heard || 0) / driver.count * 100) : 0);
+    const heard = driver.heard || 0;
+    const lost = driver.lost || 0;
+    const total = driver.count;
+    const percentText = `${Math.round(heardPercent * 10) / 10}%`;
+
+    // Color based on success rate (green for high, red for low)
+    const color = heardPercent >= 75 ? '#34d399' : heardPercent >= 50 ? '#fbbf24' : '#f87171';
+
+    html += `<div style="padding: 8px 12px; color: #e2e8f0; border-bottom: 1px solid #4a5568; font-size: 13px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+        <div style="display: flex; gap: 12px; align-items: center;">
+          <span style="font-weight: 500;">${escapeHtml(driver.name)}</span>
+        </div>
+        <span style="color: #34d399; font-weight: 600; font-size: 13px;">${total}</span>
       </div>
-      <span style="color: #34d399; font-weight: 600; font-size: 13px;">${driver.count}</span>
+      <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: #9ca3af;">
+        <span>${heard} heard, ${lost} missed</span>
+        <span style="color: ${color}; font-weight: 600;">${percentText}</span>
+      </div>
     </div>`;
   });
 
@@ -986,7 +1234,19 @@ function clearIndividualSamples() {
 
 export async function refreshCoverage() {
   const endpoint = "/get-nodes";
-  const resp = await fetch(endpoint, { headers: { 'Accept': 'application/json' } });
+
+  // Build query string from driver filters
+  const params = new URLSearchParams();
+  if (driverFilters && Object.keys(driverFilters).length > 0) {
+    Object.keys(driverFilters).forEach(key => {
+      if (driverFilters[key] !== null && driverFilters[key] !== "") {
+        params.append(key, driverFilters[key]);
+      }
+    });
+  }
+
+  const url = params.toString() ? `${endpoint}?${params.toString()}` : endpoint;
+  const resp = await fetch(url, { headers: { 'Accept': 'application/json' } });
 
   if (!resp.ok)
     throw new Error(`HTTP ${resp.status} ${resp.statusText}`);

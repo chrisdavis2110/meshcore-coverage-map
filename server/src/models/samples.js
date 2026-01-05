@@ -161,7 +161,14 @@ async function upsert(geohash, time, path, observed = null, snr = null, rssi = n
           WHEN samples.rssi IS NULL THEN EXCLUDED.rssi
           ELSE GREATEST(EXCLUDED.rssi, samples.rssi)
         END,
-        observer = COALESCE(EXCLUDED.observer, samples.observer),
+        observer = CASE
+           -- Simple logic: Wardrive always sends observer, MQTT never sends observer
+          -- If new observer is provided (wardrive) → use it
+          -- If new observer is NULL (MQTT) → preserve existing observer
+          WHEN EXCLUDED.observer IS NOT NULL AND EXCLUDED.observer != '' THEN EXCLUDED.observer
+          WHEN samples.observer IS NOT NULL AND samples.observer != '' THEN samples.observer
+          ELSE NULL
+        END,
         updated_at = CURRENT_TIMESTAMP
     `;
     await pool.query(query, [geohash, time, path, normalizedObserved, snr, rssi, observer]);

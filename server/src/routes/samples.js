@@ -54,6 +54,7 @@ router.post('/put-sample', express.json(), async (req, res, next) => {
 
     // Get existing sample to merge metadata
     const existing = await samplesModel.getWithMetadata(geohash);
+
     let metadata = {
       time: time,
       path: normalizedPath,
@@ -63,7 +64,22 @@ router.post('/put-sample', express.json(), async (req, res, next) => {
       observer: observer ?? null
     };
 
-    // Merge with existing if recent (< 1 day old)
+    // Simple logic: Wardrive always sends observer, MQTT never sends observer
+    // - If observer is provided (non-null) → it's from wardrive → always use it
+    // - If observer is null/undefined → it's from MQTT → preserve existing observer, never set it
+    if (metadata.observer != null && metadata.observer !== '') {
+      // Wardrive request - always use the observer (for both hits and misses)
+      // This ensures driver stats track all pings from the user
+    } else {
+      // MQTT request - preserve existing observer, never update it
+      if (existing.value !== null && existing.metadata !== null) {
+        metadata.observer = existing.metadata.observer ?? null;
+      } else {
+        metadata.observer = null; // No existing observer, MQTT doesn't set one
+      }
+    }
+
+    // Merge other fields if recent (< 1 day old)
     if (existing.value !== null && existing.metadata !== null && ageInDays(existing.metadata.time) < 1) {
       metadata = {
         time: Math.max(metadata.time, existing.metadata.time),
@@ -71,7 +87,7 @@ router.post('/put-sample', express.json(), async (req, res, next) => {
         rssi: definedOr(Math.max, metadata.rssi, existing.metadata.rssi),
         observed: definedOr(or, metadata.observed, existing.metadata.observed),
         path: Array.from(new Set([...metadata.path, ...(existing.metadata.path || [])])),
-        observer: metadata.observer || existing.metadata.observer || null
+        observer: metadata.observer // Already set above based on request source
       };
     }
 

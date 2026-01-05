@@ -73,15 +73,13 @@ def post_to_service(url, data):
 
 
 # Uploads an observed sample to the service.
-def upload_sample(lat: float, lon: float, path: list[str], observer: str = None):
+def upload_sample(lat: float, lon: float, path: list[str]):
   payload = {
     "lat": lat,
     "lon": lon,
     "path": path,
     "observed": True
   }
-  if observer:
-    payload["observer"] = observer
   url = SERVICE_HOST + ADD_SAMPLE_URL
   post_to_service(url, payload)
 
@@ -187,7 +185,7 @@ def handle_advert(packet):
 
 
 # Handle a GROUP_MSG packet.
-def handle_channel_msg(packet, observer_name: str = None):
+def handle_channel_msg(packet):
   # See https://github.com/meshcore-dev/MeshCore/blob/9405e8bee35195866ad1557be4af5f0c140b6ad1/src/Mesh.cpp#L206C1-L206C33
   payload = io.BytesIO(packet["payload"])
 
@@ -224,7 +222,7 @@ def handle_channel_msg(packet, observer_name: str = None):
     print(f"Ignoring first hop {ignored}, using {first_repeater}")
 
   if is_valid_location(lat, lon) and first_repeater != '':
-    upload_sample(lat, lon, [first_repeater], observer_name)
+    upload_sample(lat, lon, [first_repeater])
 
 
 # Callback when the client receives a CONNACK response from the broker.
@@ -281,14 +279,11 @@ def on_message(client, userdata, msg):
     packet["path"] += data["origin_id"][0:2].lower()
     packet["path_len"] += 2
 
-    # Get observer name from MQTT data
-    observer_name = data.get("origin")
-
     # Handle the app-specific payload.
     if packet_type == "4":
       handle_advert(packet)
     elif packet_type == "5":
-      handle_channel_msg(packet, observer_name)
+      handle_channel_msg(packet)
 
     # All done, mark this hash 'seen'.
     SEEN.append(packet_hash)
