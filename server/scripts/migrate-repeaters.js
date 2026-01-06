@@ -10,9 +10,10 @@
  *   node scripts/migrate-repeaters.js --source <url> --dest <url>
  */
 
-// Default URLs
-const DEFAULT_SOURCE = 'https://sourec.domain.com/get-repeaters';
-const DEFAULT_DEST = 'http://dest.domain.com/put-repeater';
+// Default URLs - MUST be overridden via command line arguments
+// Using placeholder URLs to prevent accidental migrations
+const DEFAULT_SOURCE = 'https://source.example.com/get-repeaters';
+const DEFAULT_DEST = 'https://dest.example.com/put-repeater';
 
 // Parse command line arguments
 function parseArgs() {
@@ -20,7 +21,7 @@ function parseArgs() {
   const config = {
     source: DEFAULT_SOURCE,
     dest: DEFAULT_DEST,
-    delay: 0 // milliseconds between requests
+    delay: 10 // milliseconds between requests
   };
   
   for (let i = 0; i < args.length; i++) {
@@ -111,6 +112,19 @@ function sleep(ms) {
 
 // Main migration function
 async function migrate(config) {
+  // Validate that URLs are not placeholders
+  if (config.source.includes('example.com') || config.dest.includes('example.com')) {
+    console.error('ERROR: Default placeholder URLs detected!');
+    console.error('You must provide --source and --dest arguments.');
+    console.error('');
+    console.error('Usage:');
+    console.error('  node scripts/migrate-repeaters.js --source <url> --dest <url>');
+    console.error('');
+    console.error('Example:');
+    console.error('  node scripts/migrate-repeaters.js --source http://localhost:3000/get-repeaters --dest https://coverage.stonekitty.net/put-repeater');
+    process.exit(1);
+  }
+  
   console.log('Starting repeater migration...');
   console.log(`Source: ${config.source}`);
   console.log(`Destination: ${config.dest}`);

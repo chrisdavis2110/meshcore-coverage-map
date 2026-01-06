@@ -19,6 +19,7 @@ let osm = null;
 let repeaterRenderMode = 'all';
 let repeaterSearch = '';
 let showSamples = false;
+let colorPalette = 'red-yellow-green'; // 'red-yellow-green', 'blue', 'patterns'
 
 // Data
 let nodes = null; // Graph data from the last refresh
@@ -39,6 +40,17 @@ mapControl.onAdd = m => {
   const div = L.DomUtil.create('div', 'mesh-control leaflet-control');
 
   div.innerHTML = `
+    <div class="mesh-control-row">
+      <label>
+        Color Palette:
+        <select id="color-palette-select">
+          <option value="red-yellow-green" selected="true">Red/Yellow/Green</option>
+          <option value="blue">Blue</option>
+          <option value="patterns">Patterns</option>
+          <option value="simple-green">Simple Green</option>
+        </select>
+      </label>
+    </div>
     <div class="mesh-control-row">
       <label>
         Repeaters:
@@ -65,6 +77,14 @@ mapControl.onAdd = m => {
       <button type="button" id="refresh-map-button">Refresh map</button>
     </div>
   `;
+
+  div.querySelector("#color-palette-select")
+    .addEventListener("change", (e) => {
+      colorPalette = e.target.value;
+      if (nodes) {
+        renderNodes(nodes);
+      }
+    });
 
   div.querySelector("#repeater-filter-select")
     .addEventListener("change", (e) => {
@@ -192,6 +212,9 @@ async function initMap() {
   sampleLayer = L.layerGroup().addTo(map);
   repeaterLayer = L.layerGroup().addTo(map);
   
+  // Initialize SVG patterns for pattern palette
+  initSVGPatterns();
+  
   // Add controls
   mapControl.addTo(map);
   repeatersControl.addTo(map);
@@ -234,6 +257,141 @@ if (document.readyState === 'loading') {
   });
 }
 
+// Initialize SVG patterns for pattern palette
+function initSVGPatterns() {
+  // Wait for map to be ready, then add patterns to the SVG container
+  map.whenReady(() => {
+    // Use a small delay to ensure Leaflet has created the SVG
+    setTimeout(() => {
+      const mapContainer = map.getContainer();
+      let svg = mapContainer.querySelector('svg.leaflet-zoom-animated');
+      
+      if (!svg) {
+        // Try again after a longer delay
+        setTimeout(initSVGPatterns, 200);
+        return;
+      }
+      
+      let svgDefs = svg.querySelector('defs');
+      
+      // Create defs if it doesn't exist
+      if (!svgDefs) {
+        svgDefs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+        svg.insertBefore(svgDefs, svg.firstChild);
+      }
+      
+      // Check if patterns already exist
+      if (svgDefs.querySelector('#pattern-sparse-lines')) {
+        return; // Patterns already initialized
+      }
+    
+    // Sparse horizontal lines pattern (0%) - screen-door effect
+    const sparseLines = document.createElementNS('http://www.w3.org/2000/svg', 'pattern');
+    sparseLines.setAttribute('id', 'pattern-sparse-lines');
+    sparseLines.setAttribute('patternUnits', 'userSpaceOnUse');
+    sparseLines.setAttribute('width', '20');
+    sparseLines.setAttribute('height', '20');
+    const sparseLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    sparseLine.setAttribute('x1', '0');
+    sparseLine.setAttribute('y1', '10');
+    sparseLine.setAttribute('x2', '20');
+    sparseLine.setAttribute('y2', '10');
+    sparseLine.setAttribute('stroke', '#000000');
+    sparseLine.setAttribute('stroke-width', '1');
+    sparseLines.appendChild(sparseLine);
+    svgDefs.appendChild(sparseLines);
+    
+    // Medium horizontal lines pattern (>0%)
+    const mediumLines = document.createElementNS('http://www.w3.org/2000/svg', 'pattern');
+    mediumLines.setAttribute('id', 'pattern-medium-lines');
+    mediumLines.setAttribute('patternUnits', 'userSpaceOnUse');
+    mediumLines.setAttribute('width', '12');
+    mediumLines.setAttribute('height', '12');
+    const mediumLine1 = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    mediumLine1.setAttribute('x1', '0');
+    mediumLine1.setAttribute('y1', '4');
+    mediumLine1.setAttribute('x2', '12');
+    mediumLine1.setAttribute('y2', '4');
+    mediumLine1.setAttribute('stroke', '#000000');
+    mediumLine1.setAttribute('stroke-width', '1');
+    const mediumLine2 = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    mediumLine2.setAttribute('x1', '0');
+    mediumLine2.setAttribute('y1', '8');
+    mediumLine2.setAttribute('x2', '12');
+    mediumLine2.setAttribute('y2', '8');
+    mediumLine2.setAttribute('stroke', '#000000');
+    mediumLine2.setAttribute('stroke-width', '1');
+    mediumLines.appendChild(mediumLine1);
+    mediumLines.appendChild(mediumLine2);
+    svgDefs.appendChild(mediumLines);
+    
+    // Dense horizontal lines pattern (>25%)
+    const denseLines = document.createElementNS('http://www.w3.org/2000/svg', 'pattern');
+    denseLines.setAttribute('id', 'pattern-dense-lines');
+    denseLines.setAttribute('patternUnits', 'userSpaceOnUse');
+    denseLines.setAttribute('width', '8');
+    denseLines.setAttribute('height', '8');
+    const denseLine1 = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    denseLine1.setAttribute('x1', '0');
+    denseLine1.setAttribute('y1', '2');
+    denseLine1.setAttribute('x2', '8');
+    denseLine1.setAttribute('y2', '2');
+    denseLine1.setAttribute('stroke', '#000000');
+    denseLine1.setAttribute('stroke-width', '1');
+    const denseLine2 = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    denseLine2.setAttribute('x1', '0');
+    denseLine2.setAttribute('y1', '6');
+    denseLine2.setAttribute('x2', '8');
+    denseLine2.setAttribute('y2', '6');
+    denseLine2.setAttribute('stroke', '#000000');
+    denseLine2.setAttribute('stroke-width', '1');
+    denseLines.appendChild(denseLine1);
+    denseLines.appendChild(denseLine2);
+    svgDefs.appendChild(denseLines);
+    
+    // Very dense horizontal lines pattern (>40%)
+    const veryDenseLines = document.createElementNS('http://www.w3.org/2000/svg', 'pattern');
+    veryDenseLines.setAttribute('id', 'pattern-very-dense-lines');
+    veryDenseLines.setAttribute('patternUnits', 'userSpaceOnUse');
+    veryDenseLines.setAttribute('width', '4');
+    veryDenseLines.setAttribute('height', '4');
+    const veryDenseLine1 = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    veryDenseLine1.setAttribute('x1', '0');
+    veryDenseLine1.setAttribute('y1', '1');
+    veryDenseLine1.setAttribute('x2', '4');
+    veryDenseLine1.setAttribute('y2', '1');
+    veryDenseLine1.setAttribute('stroke', '#000000');
+    veryDenseLine1.setAttribute('stroke-width', '1');
+    const veryDenseLine2 = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    veryDenseLine2.setAttribute('x1', '0');
+    veryDenseLine2.setAttribute('y1', '3');
+    veryDenseLine2.setAttribute('x2', '4');
+    veryDenseLine2.setAttribute('y2', '3');
+    veryDenseLine2.setAttribute('stroke', '#000000');
+    veryDenseLine2.setAttribute('stroke-width', '1');
+    veryDenseLines.appendChild(veryDenseLine1);
+    veryDenseLines.appendChild(veryDenseLine2);
+    svgDefs.appendChild(veryDenseLines);
+    
+    // Solid pattern (>70%) - very dense lines that appear almost solid
+    const solid = document.createElementNS('http://www.w3.org/2000/svg', 'pattern');
+    solid.setAttribute('id', 'pattern-solid');
+    solid.setAttribute('patternUnits', 'userSpaceOnUse');
+    solid.setAttribute('width', '2');
+    solid.setAttribute('height', '2');
+    const solidLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    solidLine.setAttribute('x1', '0');
+    solidLine.setAttribute('y1', '1');
+    solidLine.setAttribute('x2', '2');
+    solidLine.setAttribute('y2', '1');
+    solidLine.setAttribute('stroke', '#000000');
+    solidLine.setAttribute('stroke-width', '1');
+    solid.appendChild(solidLine);
+    svgDefs.appendChild(solid);
+    }, 100); // Delay to ensure SVG is ready
+  });
+}
+
 function escapeHtml(s) {
   return String(s)
     .replaceAll('&', '&amp;')
@@ -241,57 +399,168 @@ function escapeHtml(s) {
     .replaceAll('>', '&gt;');
 }
 
-// Convert success rate (0-1) to a color gradient:
-// Dark green (100%) -> Light green -> Orange -> Red-orange -> Red (0%)
-function successRateToColor(rate) {
-  // Clamp rate to 0-1
+// Convert rate to hex color
+function toHex(n) {
+  const hex = n.toString(16);
+  return hex.length === 1 ? '0' + hex : hex;
+}
+
+function rgbToHex(r, g, b) {
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+}
+
+// Palette 1: Red/Orange/Yellow/Light-Green/Dark-Green
+// 0=red, >0=red, >25%=orange, >40%=yellow, >70%=light green, >70%=dark green
+function paletteRedYellowGreen(rate) {
   const clampedRate = Math.max(0, Math.min(1, rate));
   
-  let red, green, blue;
-  
-  if (clampedRate >= 0.75) {
-    // Dark green (0, 100, 0) to lighter green (50, 150, 50) (75-100%)
-    // Making light green closer to dark green
-    const t = (clampedRate - 0.75) / 0.25; // 0 to 1
-    red = Math.round(0 + (50 - 0) * t);     // 0 -> 50
-    green = Math.round(100 + (150 - 100) * t); // 100 -> 150
-    blue = Math.round(0 + (50 - 0) * t);    // 0 -> 50
-  } else if (clampedRate >= 0.5) {
-    // Light green (50, 150, 50) to orange (255, 165, 0) (50-75%)
-    const t = (clampedRate - 0.5) / 0.25; // 0 to 1
-    red = Math.round(50 + (255 - 50) * t);   // 50 -> 255
-    green = Math.round(150 + (165 - 150) * t); // 150 -> 165
-    blue = Math.round(50 - 50 * t);           // 50 -> 0
-  } else if (clampedRate >= 0.25) {
-    // Orange (255, 165, 0) to red-orange (255, 100, 0) (25-50%)
-    const t = (clampedRate - 0.25) / 0.25; // 0 to 1
-    red = 255;                                    // 255
-    green = Math.round(165 + (100 - 165) * t);    // 165 -> 100
-    blue = 0;                                      // 0
+  if (clampedRate === 0) {
+    return '#FF0000'; // Red
+  } else if (clampedRate <= 0.25) {
+    return '#FF0000'; // Red
+  } else if (clampedRate <= 0.40) {
+    return '#FFA500'; // Orange
+  } else if (clampedRate <= 0.70) {
+    return '#FFFF00'; // Yellow
+  } else if (clampedRate <= 0.85) {
+    return '#90EE90'; // Light green
   } else {
-    // Red-orange (255, 100, 0) to red (255, 0, 0) (0-25%)
-    const t = clampedRate / 0.25; // 0 to 1
-    red = 255;                                    // 255
-    green = Math.round(100 - 100 * t);            // 100 -> 0
-    blue = 0;                                      // 0
+    return '#006400'; // Dark green
+  }
+}
+
+// Palette 2: Blue (wider range from very light to very dark)
+// 0=very light blue, >0=light blue, >25%=medium blue, >40%=blue, >70%=dark blue, >85%=very dark blue
+function paletteBlue(rate) {
+  const clampedRate = Math.max(0, Math.min(1, rate));
+  
+  if (clampedRate === 0) {
+    return '#E6F3FF'; // Very light blue
+  } else if (clampedRate <= 0.25) {
+    return '#B3D9FF'; // Light blue
+  } else if (clampedRate <= 0.40) {
+    return '#87CEEB'; // Medium blue (sky blue)
+  } else if (clampedRate <= 0.70) {
+    return '#4169E1'; // Royal blue
+  } else if (clampedRate <= 0.85) {
+    return '#0000CD'; // Medium dark blue
+  } else {
+    return '#000033'; // Very dark blue
+  }
+}
+
+// Palette 3: Patterns (screen-door effect with sparse to dense lines for colorblind accessibility)
+// Returns an object with fillColor, fillPattern, and patternId
+function palettePatterns(rate) {
+  const clampedRate = Math.max(0, Math.min(1, rate));
+  
+  let patternId;
+  if (clampedRate === 0) {
+    patternId = 'pattern-sparse-lines';
+  } else if (clampedRate <= 0.25) {
+    patternId = 'pattern-medium-lines';
+  } else if (clampedRate <= 0.40) {
+    patternId = 'pattern-dense-lines';
+  } else if (clampedRate <= 0.70) {
+    patternId = 'pattern-very-dense-lines';
+  } else {
+    patternId = 'pattern-solid';
   }
   
-  // Convert to hex
-  const toHex = (n) => {
-    const hex = n.toString(16);
-    return hex.length === 1 ? '0' + hex : hex;
+  return {
+    fillColor: '#E0E0E0', // Light grey base (will be overlaid with black patterns)
+    fillPattern: patternId,
+    patternUrl: `url(#${patternId})`
   };
+}
+
+// Palette 4: Simple Green (3 options)
+// <25% = empty gray box (with gray border), <50% = light green, <100% = dark green
+function paletteSimpleGreen(rate) {
+  const clampedRate = Math.max(0, Math.min(1, rate));
   
-  return `#${toHex(red)}${toHex(green)}${toHex(blue)}`;
+  if (clampedRate < 0.25) {
+    return {
+      fillColor: '#F5F5F5', // Very light gray (appears empty)
+      borderColor: '#808080', // Gray border
+      fillOpacity: 0, // Transparent fill
+      hasBorder: true
+    };
+  } else if (clampedRate < 0.50) {
+    return {
+      fillColor: '#90EE90', // Light green
+      borderColor: '#90EE90',
+      fillOpacity: 1,
+      hasBorder: false
+    };
+  } else {
+    return {
+      fillColor: '#006400', // Dark green
+      borderColor: '#006400',
+      fillOpacity: 1,
+      hasBorder: false
+    };
+  }
+}
+
+// Main function to get color/style based on selected palette
+function successRateToColor(rate) {
+  const clampedRate = Math.max(0, Math.min(1, rate));
+  
+  if (colorPalette === 'red-yellow-green') {
+    return paletteRedYellowGreen(clampedRate);
+  } else if (colorPalette === 'blue') {
+    return paletteBlue(clampedRate);
+  } else if (colorPalette === 'patterns') {
+    const pattern = palettePatterns(clampedRate);
+    return pattern.fillColor; // For markers that don't support patterns, return base color
+  } else if (colorPalette === 'simple-green') {
+    const simple = paletteSimpleGreen(clampedRate);
+    // For empty boxes (hasBorder: true), return gray for circle markers
+    return simple.hasBorder ? '#808080' : simple.fillColor;
+  }
+  
+  // Fallback to red-yellow-green
+  return paletteRedYellowGreen(clampedRate);
+}
+
+// Get style object for patterns (used by rectangles)
+function successRateToStyle(rate) {
+  const clampedRate = Math.max(0, Math.min(1, rate));
+  
+  if (colorPalette === 'patterns') {
+    const pattern = palettePatterns(clampedRate);
+    return {
+      fillColor: pattern.fillColor,
+      fillPattern: pattern.fillPattern,
+      patternUrl: pattern.patternUrl
+    };
+  } else if (colorPalette === 'simple-green') {
+    const simple = paletteSimpleGreen(clampedRate);
+    return {
+      fillColor: simple.fillColor,
+      borderColor: simple.borderColor,
+      fillOpacity: simple.fillOpacity,
+      hasBorder: simple.hasBorder
+    };
+  }
+  
+  // For color palettes, return just the color
+  return {
+    fillColor: successRateToColor(clampedRate)
+  };
 }
 
 function coverageMarker(coverage) {
   const [minLat, minLon, maxLat, maxLon] = geo.decode_bbox(coverage.id);
   const totalSamples = coverage.rcv + coverage.lost;
   const heardRatio = totalSamples > 0 ? coverage.rcv / totalSamples : 0;
-  // Use gradient color based on success rate
+  
+  // Get style based on palette
+  const styleInfo = successRateToStyle(heardRatio);
   const color = successRateToColor(heardRatio);
   const date = new Date(fromTruncatedTime(coverage.time || 0));
+  
   // Ensure tiles with only lost samples are visible
   // Base opacity on total samples, but ensure minimum visibility for lost-only tiles
   const baseOpacity = 0.75 * sigmoid(totalSamples, 1.2, 2);
@@ -299,12 +568,29 @@ function coverageMarker(coverage) {
   const opacity = heardRatio > 0 
     ? baseOpacity * heardRatio 
     : Math.max(baseOpacity, 0.4); // At least 40% opacity for lost-only tiles
+  
   const style = {
-    color: color,
-    weight: 1,
-    fillOpacity: Math.max(opacity, 0.2), // Minimum 20% opacity for all tiles
+    color: styleInfo.borderColor || color,
+    weight: styleInfo.hasBorder ? 2 : 1, // Thicker border for empty boxes
+    fillColor: styleInfo.fillColor || color,
+    fillOpacity: styleInfo.fillOpacity !== undefined ? styleInfo.fillOpacity : Math.max(opacity, 0.2), // Use palette opacity or minimum 20% opacity
   };
+  
   const rect = L.rectangle([[minLat, minLon], [maxLat, maxLon]], style);
+  
+  // Apply pattern if using patterns palette
+  if (colorPalette === 'patterns' && styleInfo.patternUrl) {
+    rect.on('add', function() {
+      // Use setTimeout to ensure the element is fully rendered
+      setTimeout(() => {
+        const path = rect.getElement();
+        if (path) {
+          path.setAttribute('fill', styleInfo.patternUrl);
+          path.setAttribute('fill-opacity', style.fillOpacity || 0.6);
+        }
+      }, 10);
+    });
+  }
   let details = `
     <strong>${coverage.id}</strong><br/>
     Heard: ${coverage.rcv} Lost: ${coverage.lost} (${(100 * heardRatio).toFixed(0)}%)<br/>
@@ -533,7 +819,7 @@ function updateAllEdgeVisibility(end) {
       // e.ends is [repeater, coverage]
       markersToOverride.push(e.ends[0].marker);
       coverageToHighlight.push(e.ends[1].marker);
-      e.setStyle({ opacity: 0.6 });
+      e.setStyle({ opacity: 0.6, color: '#1e40af' }); // Darker blue when visible
     } else {
       e.setStyle({ opacity: 0 });
     }
@@ -579,8 +865,9 @@ function renderNodes(nodes) {
   // Add edges.
   edgeList.forEach(e => {
     const style = {
-      weight: 2,
+      weight: 3,
       opacity: 0,
+      color: '#1e40af', // Darker blue
       dashArray: '2,4',
       interactive: false,
     };
