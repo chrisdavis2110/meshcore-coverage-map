@@ -21,6 +21,7 @@ MIGRATIONS=(
   "004_add_observed_snr_rssi.sql"
   "005_add_repeater_pubkey.sql"
   "006_add_sample_observer.sql"
+  "007_replace_observer_with_drivers.sql"
 )
 
 for migration in "${MIGRATIONS[@]}"; do

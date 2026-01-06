@@ -753,10 +753,9 @@ async function sendPing({ auto = false } = {}) {
   let repeat = null;
   if (sentToMesh) {
     try {
-      repeat = await listenForRepeat(text, 2500);
+      repeat = await listenForRepeat(text);
       log(`Heard repeat from ${repeat.repeater}`);
     } catch {
-      log("waited 2.5 seconds for repeat");
       log("Didn't hear a repeat in time, assuming lost.");
     }
   }
@@ -765,9 +764,9 @@ async function sendPing({ auto = false } = {}) {
     // Send sample to service.
     try {
       const data = { lat, lon };
-      // Include observer name (device name or "wardrive-user")
-      const observerName = state.selfInfo?.name || "wardrive-user";
-      data.observer = observerName;
+      // Include driver name (device name or "wardrive-user")
+      const driverName = state.selfInfo?.name || "wardrive-user";
+      data.drivers = driverName;
 
       if (repeat) {
         data.path = [repeat.repeater];

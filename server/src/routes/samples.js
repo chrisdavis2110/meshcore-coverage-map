@@ -23,7 +23,7 @@ router.get('/get-samples', async (req, res, next) => {
             rssi: s.metadata.rssi ?? null,
             snr: s.metadata.snr ?? null,
             observed: s.metadata.observed ?? path.length > 0,
-            observer: s.metadata.observer ?? null
+            drivers: s.metadata.drivers ?? null
           },
           // Also include flat format for compatibility
           hash: s.name,
@@ -32,7 +32,7 @@ router.get('/get-samples', async (req, res, next) => {
           rssi: s.metadata.rssi ?? null,
           snr: s.metadata.snr ?? null,
           observed: s.metadata.observed ?? path.length > 0,
-          observer: s.metadata.observer ?? null
+          drivers: s.metadata.drivers ?? null
         };
       })
     };
@@ -46,7 +46,7 @@ router.get('/get-samples', async (req, res, next) => {
 // POST /put-sample
 router.post('/put-sample', express.json(), async (req, res, next) => {
   try {
-    const { lat, lon, path, snr, rssi, observed, repeaterPubkey, observer } = req.body;
+    const { lat, lon, path, snr, rssi, observed, repeaterPubkey, drivers } = req.body;
     const [parsedLat, parsedLon] = parseLocation(lat, lon);
     const time = Date.now();
     const normalizedPath = (path ?? []).map(p => p.toLowerCase());
@@ -61,21 +61,21 @@ router.post('/put-sample', express.json(), async (req, res, next) => {
       snr: snr ?? null,
       rssi: rssi ?? null,
       observed: observed ?? normalizedPath.length > 0,
-      observer: observer ?? null
+      drivers: drivers ?? null
     };
 
-    // Simple logic: Wardrive always sends observer, MQTT never sends observer
-    // - If observer is provided (non-null) → it's from wardrive → always use it
-    // - If observer is null/undefined → it's from MQTT → preserve existing observer, never set it
-    if (metadata.observer != null && metadata.observer !== '') {
-      // Wardrive request - always use the observer (for both hits and misses)
+    // Simple logic: Wardrive always sends drivers, MQTT never sends drivers
+    // - If drivers is provided (non-null) → it's from wardrive → always use it
+    // - If drivers is null/undefined → it's from MQTT → preserve existing drivers, never set it
+    if (metadata.drivers != null && metadata.drivers !== '') {
+      // Wardrive request - always use the drivers (for both hits and misses)
       // This ensures driver stats track all pings from the user
     } else {
-      // MQTT request - preserve existing observer, never update it
+      // MQTT request - preserve existing drivers, never update it
       if (existing.value !== null && existing.metadata !== null) {
-        metadata.observer = existing.metadata.observer ?? null;
+        metadata.drivers = existing.metadata.drivers ?? null;
       } else {
-        metadata.observer = null; // No existing observer, MQTT doesn't set one
+        metadata.drivers = null; // No existing drivers, MQTT doesn't set one
       }
     }
 
@@ -87,12 +87,12 @@ router.post('/put-sample', express.json(), async (req, res, next) => {
         rssi: definedOr(Math.max, metadata.rssi, existing.metadata.rssi),
         observed: definedOr(or, metadata.observed, existing.metadata.observed),
         path: Array.from(new Set([...metadata.path, ...(existing.metadata.path || [])])),
-        observer: metadata.observer // Already set above based on request source
+        drivers: metadata.drivers // Already set above based on request source
       };
     }
 
     // Upsert - the database will handle merging paths atomically
-    await samplesModel.upsert(geohash, metadata.time, metadata.path, metadata.observed, metadata.snr, metadata.rssi, metadata.observer);
+    await samplesModel.upsert(geohash, metadata.time, metadata.path, metadata.observed, metadata.snr, metadata.rssi, metadata.drivers);
 
     // If we have a repeater public key, update/create the repeater entry
     if (repeaterPubkey && normalizedPath.length > 0) {

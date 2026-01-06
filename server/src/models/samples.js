@@ -6,8 +6,8 @@ async function getByPrefix(prefix) {
   let query, result;
   try {
     query = prefix
-      ? 'SELECT geohash, time, path, observed, snr, rssi, observer FROM samples WHERE geohash LIKE $1 ORDER BY geohash'
-      : 'SELECT geohash, time, path, observed, snr, rssi, observer FROM samples ORDER BY geohash';
+      ? 'SELECT geohash, time, path, observed, snr, rssi, drivers FROM samples WHERE geohash LIKE $1 ORDER BY geohash'
+      : 'SELECT geohash, time, path, observed, snr, rssi, drivers FROM samples ORDER BY geohash';
     const params = prefix ? [`${prefix}%`] : [];
     result = await pool.query(query, params);
   } catch (error) {
@@ -43,7 +43,7 @@ async function getByPrefix(prefix) {
         observed: row.observed ?? (row.path && row.path.length > 0),
         snr: row.snr ?? null,
         rssi: row.rssi ?? null,
-        observer: row.observer ?? null
+        drivers: row.drivers ?? null
       }
     }))
   };
@@ -52,7 +52,7 @@ async function getByPrefix(prefix) {
 async function getAll() {
   let result;
   try {
-    result = await pool.query('SELECT geohash, time, path, observed, snr, rssi, observer FROM samples ORDER BY geohash');
+    result = await pool.query('SELECT geohash, time, path, observed, snr, rssi, drivers FROM samples ORDER BY geohash');
   } catch (error) {
     if (error.code === '42703') { // column does not exist
       try {
@@ -78,7 +78,7 @@ async function getAll() {
         observed: row.observed ?? (row.path && row.path.length > 0),
         snr: row.snr ?? null,
         rssi: row.rssi ?? null,
-        observer: row.observer ?? null
+        drivers: row.drivers ?? null
       }
     }))
   };
@@ -88,7 +88,7 @@ async function getWithMetadata(geohash) {
   let result;
   try {
     result = await pool.query(
-      'SELECT geohash, time, path, observed, snr, rssi, observer FROM samples WHERE geohash = $1',
+      'SELECT geohash, time, path, observed, snr, rssi, drivers FROM samples WHERE geohash = $1',
       [geohash]
     );
   } catch (error) {
@@ -126,12 +126,12 @@ async function getWithMetadata(geohash) {
       observed: row.observed ?? (row.path && row.path.length > 0),
       snr: row.snr ?? null,
       rssi: row.rssi ?? null,
-      observer: row.observer ?? null
+      drivers: row.drivers ?? null
     }
   };
 }
 
-async function upsert(geohash, time, path, observed = null, snr = null, rssi = null, observer = null) {
+async function upsert(geohash, time, path, observed = null, snr = null, rssi = null, drivers = null) {
   // Normalize observed: if null, derive from path
   const normalizedObserved = observed ?? (path && path.length > 0);
 
@@ -139,7 +139,7 @@ async function upsert(geohash, time, path, observed = null, snr = null, rssi = n
   let query;
   try {
     query = `
-      INSERT INTO samples (geohash, time, path, observed, snr, rssi, observer)
+      INSERT INTO samples (geohash, time, path, observed, snr, rssi, drivers)
       VALUES ($1, $2, $3, $4, $5, $6, $7)
       ON CONFLICT (geohash)
       DO UPDATE SET
@@ -161,19 +161,19 @@ async function upsert(geohash, time, path, observed = null, snr = null, rssi = n
           WHEN samples.rssi IS NULL THEN EXCLUDED.rssi
           ELSE GREATEST(EXCLUDED.rssi, samples.rssi)
         END,
-        observer = CASE
-           -- Simple logic: Wardrive always sends observer, MQTT never sends observer
-          -- If new observer is provided (wardrive) → use it
-          -- If new observer is NULL (MQTT) → preserve existing observer
-          WHEN EXCLUDED.observer IS NOT NULL AND EXCLUDED.observer != '' THEN EXCLUDED.observer
-          WHEN samples.observer IS NOT NULL AND samples.observer != '' THEN samples.observer
+        drivers = CASE
+          -- Simple logic: Wardrive always sends drivers, MQTT never sends drivers
+          -- If new drivers is provided (wardrive) → use it
+          -- If new drivers is NULL (MQTT) → preserve existing drivers
+          WHEN EXCLUDED.drivers IS NOT NULL AND EXCLUDED.drivers != '' THEN EXCLUDED.drivers
+          WHEN samples.drivers IS NOT NULL AND samples.drivers != '' THEN samples.drivers
           ELSE NULL
         END,
         updated_at = CURRENT_TIMESTAMP
     `;
-    await pool.query(query, [geohash, time, path, normalizedObserved, snr, rssi, observer]);
+    await pool.query(query, [geohash, time, path, normalizedObserved, snr, rssi, drivers]);
   } catch (error) {
-    if (error.code === '42703') { // column does not exist - try without observer
+    if (error.code === '42703') { // column does not exist - try without drivers
       try {
         query = `
           INSERT INTO samples (geohash, time, path, observed, snr, rssi)
@@ -203,7 +203,7 @@ async function upsert(geohash, time, path, observed = null, snr = null, rssi = n
         await pool.query(query, [geohash, time, path, normalizedObserved, snr, rssi]);
       } catch (error2) {
         if (error2.code === '42703') {
-          // Oldest schema - no observed, snr, rssi, observer
+          // Oldest schema - no observed, snr, rssi, drivers
           query = `
             INSERT INTO samples (geohash, time, path)
             VALUES ($1, $2, $3)
@@ -238,7 +238,7 @@ async function getOlderThan(maxAgeDays) {
   let result;
   try {
     result = await pool.query(
-      'SELECT geohash, time, path, observed, snr, rssi, observer FROM samples WHERE time < $1 ORDER BY geohash',
+      'SELECT geohash, time, path, observed, snr, rssi, drivers FROM samples WHERE time < $1 ORDER BY geohash',
       [cutoffTime]
     );
   } catch (error) {
@@ -269,7 +269,7 @@ async function getOlderThan(maxAgeDays) {
     observed: row.observed ?? (row.path && row.path.length > 0),
     snr: row.snr,
     rssi: row.rssi,
-    observer: row.observer ?? null
+    drivers: row.drivers ?? null
   }));
 }
 

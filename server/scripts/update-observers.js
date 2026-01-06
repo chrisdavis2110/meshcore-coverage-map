@@ -1,23 +1,23 @@
 /**
- * Script to update observer names for samples in a specific time range
+ * Script to update driver names for samples in a specific time range
  *
  * This script allows you to:
- * - Update observer name for all samples from a specific observer in a time range
- * - Update observer name for all samples matching certain criteria
+ * - Update driver name for all samples from a specific driver in a time range
+ * - Update driver name for all samples matching certain criteria
  *
  * Usage:
- *   # Query samples by time range (no observer required)
+ *   # Query samples by time range (no driver required)
  *   node scripts/update-observers.js --time-range "7:00-7:20" [--dry-run]
  *
- *   # Update observer for a specific time range
+ *   # Update driver for a specific time range
  *   node scripts/update-observers.js --old-name "old-name" --new-name "new-name" --time-range "7:00-7:20" [--dry-run] [--confirm]
  *
- *   # Update observer for all samples from a specific observer
+ *   # Update driver for all samples from a specific driver
  *   node scripts/update-observers.js --old-name "old-name" --new-name "new-name" [--dry-run] [--confirm]
  *
  * Options:
- *   --old-name: Current observer name to update (optional, required only when updating)
- *   --new-name: New observer name (optional, required only when updating)
+ *   --old-name: Current driver name to update (optional, required only when updating)
+ *   --new-name: New driver name (optional, required only when updating)
  *   --start-time: Start timestamp in milliseconds (optional, for time range filtering)
  *   --end-time: End timestamp in milliseconds (optional, for time range filtering)
  *   --time-range: Time range in format "HH:MM-HH:MM" (e.g., "7:00-7:20") in PST/PDT - matches any date (converted to UTC)
@@ -35,7 +35,7 @@
  *   # Using timestamps (old method)
  *   node scripts/update-observers.js --old-name "device-1" --new-name "device-2" --start-time 1704067200000 --end-time 1704153600000 --dry-run
  *
- *   # Update all samples from an observer (no time range)
+ *   # Update all samples from a driver (no time range)
  *   node scripts/update-observers.js --old-name "device-1" --new-name "device-2" --confirm
  *
  *   # Docker container
@@ -204,39 +204,39 @@ async function updateObservers(dryRun = true, oldName, newName, startTime = null
   const client = await pool.connect();
 
   try {
-    // First, check if observer column exists
+    // First, check if drivers column exists
     const columnCheck = await client.query(`
       SELECT column_name
       FROM information_schema.columns
-      WHERE table_name = 'samples' AND column_name = 'observer'
+      WHERE table_name = 'samples' AND column_name = 'drivers'
     `);
 
     if (columnCheck.rows.length === 0) {
-      console.log('Observer column does not exist. Nothing to do.');
+      console.log('Drivers column does not exist. Nothing to do.');
       return;
     }
 
-    // Observer name is only required if we're updating
-    // Note: oldName can be empty string '' to update null observers
+    // Driver name is only required if we're updating
+    // Note: oldName can be empty string '' to update null drivers
     if ((oldName === null || oldName === undefined) && (newName === null || newName === undefined)) {
-      // Just querying - no observer required
+      // Just querying - no driver required
     } else if ((oldName === null || oldName === undefined) || (newName === null || newName === undefined)) {
-      console.error('Error: Both --old-name and --new-name are required when updating observers');
-      console.error('Use --old-name "" to update null observers');
+      console.error('Error: Both --old-name and --new-name are required when updating drivers');
+      console.error('Use --old-name "" to update null drivers');
       process.exit(1);
     } else if (oldName === newName && oldName !== '') {
       console.error('Error: Old name and new name cannot be the same');
       process.exit(1);
     }
 
-    // Build query with optional time range and optional observer
+    // Build query with optional time range and optional driver
     let query = `
       SELECT
         COUNT(*) as total_samples,
         COUNT(CASE WHEN snr IS NOT NULL OR rssi IS NOT NULL THEN 1 END) as samples_with_signal,
         MIN(time) as earliest_time,
         MAX(time) as latest_time,
-        COUNT(DISTINCT observer) as unique_observers
+        COUNT(DISTINCT drivers) as unique_drivers
       FROM samples
       WHERE 1=1
     `;
@@ -244,22 +244,22 @@ async function updateObservers(dryRun = true, oldName, newName, startTime = null
 
     if (oldName !== null && oldName !== undefined) {
       if (oldName === '') {
-        // Query for null observers
-        query += ` AND observer IS NULL`;
+        // Query for null drivers
+        query += ` AND drivers IS NULL`;
       } else {
-        query += ` AND observer = $${params.length + 1}`;
+        query += ` AND drivers = $${params.length + 1}`;
         params.push(oldName);
       }
     }
 
-    // Build observer list query (same filters) - only if not filtering by specific observer
-    let observerQuery = null;
-    const observerParams = [];
+    // Build drivers list query (same filters) - only if not filtering by specific driver
+    let driversQuery = null;
+    const driversParams = [];
 
     if (oldName === null || oldName === undefined) {
-      observerQuery = `
+      driversQuery = `
         SELECT
-          COALESCE(observer, '(null)') as observer,
+          COALESCE(drivers, '(null)') as drivers,
           COUNT(*) as sample_count,
           COUNT(CASE WHEN snr IS NOT NULL OR rssi IS NOT NULL THEN 1 END) as samples_with_signal
         FROM samples
@@ -299,9 +299,9 @@ async function updateObservers(dryRun = true, oldName, newName, startTime = null
 
     query = addTimeFilters(query, params);
 
-    if (observerQuery) {
-      observerQuery = addTimeFilters(observerQuery, observerParams);
-      observerQuery += ` GROUP BY observer ORDER BY COUNT(*) DESC`;
+    if (driversQuery) {
+      driversQuery = addTimeFilters(driversQuery, driversParams);
+      driversQuery += ` GROUP BY drivers ORDER BY COUNT(*) DESC`;
     }
 
     const verifyResult = await client.query(query, params);
@@ -309,9 +309,9 @@ async function updateObservers(dryRun = true, oldName, newName, startTime = null
     if (verifyResult.rows.length === 0 || parseInt(verifyResult.rows[0].total_samples) === 0) {
       if (oldName !== null && oldName !== undefined) {
         if (oldName === '') {
-          console.log(`\nNo samples found with null observer`);
+          console.log(`\nNo samples found with null drivers`);
         } else {
-          console.log(`\nNo samples found for observer "${oldName}"`);
+          console.log(`\nNo samples found for driver "${oldName}"`);
         }
       } else {
         console.log(`\nNo samples found`);
@@ -325,20 +325,20 @@ async function updateObservers(dryRun = true, oldName, newName, startTime = null
     const stats = verifyResult.rows[0];
     const totalSamples = parseInt(stats.total_samples);
     const samplesWithSignal = parseInt(stats.samples_with_signal);
-    const uniqueObservers = parseInt(stats.unique_observers) || 0;
+    const uniqueDrivers = parseInt(stats.unique_drivers) || 0;
     const earliestTime = stats.earliest_time ? new Date(parseInt(stats.earliest_time)).toISOString() : 'N/A';
     const latestTime = stats.latest_time ? new Date(parseInt(stats.latest_time)).toISOString() : 'N/A';
 
     if (oldName !== null && oldName !== undefined) {
       if (oldName === '') {
-        console.log(`\nFound ${totalSamples} sample(s) with null observer`);
+        console.log(`\nFound ${totalSamples} sample(s) with null drivers`);
       } else {
-        console.log(`\nFound ${totalSamples} sample(s) for observer "${oldName}"`);
+        console.log(`\nFound ${totalSamples} sample(s) for driver "${oldName}"`);
       }
     } else {
       console.log(`\nFound ${totalSamples} sample(s)`);
-      if (uniqueObservers > 0) {
-        console.log(`  Unique observers: ${uniqueObservers}`);
+      if (uniqueDrivers > 0) {
+        console.log(`  Unique drivers: ${uniqueDrivers}`);
       }
     }
     console.log(`  Samples with signal data: ${samplesWithSignal}`);
@@ -367,7 +367,7 @@ async function updateObservers(dryRun = true, oldName, newName, startTime = null
       }
     }
 
-    // Check if we have both oldName and newName (oldName can be empty string for null observers)
+    // Check if we have both oldName and newName (oldName can be empty string for null drivers)
     const hasOldName = oldName !== null && oldName !== undefined;
     const hasNewName = newName !== null && newName !== undefined;
 
@@ -378,7 +378,7 @@ async function updateObservers(dryRun = true, oldName, newName, startTime = null
         console.log(`\nWill update observer from "${oldName}" to "${newName}"`);
       }
     } else {
-      console.log(`\n[QUERY ONLY] No observer update specified. Use --old-name and --new-name to update.`);
+      console.log(`\n[QUERY ONLY] No driver update specified. Use --old-name and --new-name to update.`);
     }
 
     if (!hasOldName || !hasNewName) {
@@ -387,29 +387,29 @@ async function updateObservers(dryRun = true, oldName, newName, startTime = null
     }
 
     if (dryRun) {
-      console.log('\n[DRY RUN] Would update observer for these samples.');
+      console.log('\n[DRY RUN] Would update driver for these samples.');
       console.log('Run with --confirm to actually perform the update.');
       return;
     }
 
     // Actually perform the update
-    // Allow updating null observers by checking for empty string or null
+    // Allow updating null drivers by checking for empty string or null
     let updateQuery;
     const updateParams = [newName];
 
     if (oldName === '' || oldName === null || oldName === undefined) {
-      // Update all null observers
+      // Update all null drivers
       updateQuery = `
         UPDATE samples
-        SET observer = $1
-        WHERE observer IS NULL
+        SET drivers = $1
+        WHERE drivers IS NULL
       `;
     } else {
-      // Update specific observer
+      // Update specific driver
       updateQuery = `
         UPDATE samples
-        SET observer = $1
-        WHERE observer = $2
+        SET drivers = $1
+        WHERE drivers = $2
       `;
       updateParams.push(oldName);
     }
@@ -446,11 +446,11 @@ async function updateObservers(dryRun = true, oldName, newName, startTime = null
     console.log('[DEBUG] oldName type:', typeof oldName, 'value:', oldName === '' ? '(empty string)' : oldName);
 
     const updateResult = await client.query(updateQuery, updateParams);
-    console.log(`\nUpdated observer for ${updateResult.rowCount} sample(s).`);
+    console.log(`\nUpdated driver for ${updateResult.rowCount} sample(s).`);
     if (oldName === '' || oldName === null || oldName === undefined) {
-      console.log(`Null observers have been changed to "${newName}"`);
+      console.log(`Null drivers have been changed to "${newName}"`);
     } else {
-      console.log(`Observer "${oldName}" has been changed to "${newName}"`);
+      console.log(`Driver "${oldName}" has been changed to "${newName}"`);
     }
 
   } catch (error) {
@@ -514,9 +514,9 @@ async function main() {
 Usage: node scripts/update-observers.js [options]
 
 Options:
-  --old-name <name>     Current observer name to update (optional, required only when updating)
-                         Use "" (empty string) to update null observers
-  --new-name <name>     New observer name (optional, required only when updating)
+  --old-name <name>     Current driver name to update (optional, required only when updating)
+                         Use "" (empty string) to update null drivers
+  --new-name <name>     New driver name (optional, required only when updating)
   --time-range <range>  Time range in format "HH:MM-HH:MM" (e.g., "7:00-7:20") in PST/PDT (converted to UTC)
   --date <date>         Date in format "YYYY-MM-DD" (optional, can be used alone or with --time-range/--start-time/--end-time)
   --start-time <ms>     Start timestamp in milliseconds (optional)
@@ -526,31 +526,31 @@ Options:
   --help               Show this help message
 
 Examples:
-  # Query samples by time range (no observer required)
+  # Query samples by time range (no driver required)
   node scripts/update-observers.js --time-range "7:00-7:20"
 
   # Query samples by time range on a specific date
   node scripts/update-observers.js --time-range "7:00-7:20" --date "2024-01-01"
 
-  # Update observer for samples in time range
+  # Update driver for samples in time range
   node scripts/update-observers.js --old-name "device-1" --new-name "device-2" --time-range "7:00-7:20" --dry-run
 
-  # Update observer for samples on a specific date and time
+  # Update driver for samples on a specific date and time
   node scripts/update-observers.js --old-name "device-1" --new-name "device-2" --time-range "7:00-7:20" --date "2024-01-01" --confirm
 
   # Using timestamps (old method)
   node scripts/update-observers.js --old-name "device-1" --new-name "device-2" --start-time 1704067200000 --end-time 1704153600000 --confirm
 
-  # Update all samples from an observer
+  # Update all samples from a driver
   node scripts/update-observers.js --old-name "device-1" --new-name "device-2" --confirm
 
-  # Update all null observers in a time range
+  # Update all null drivers in a time range
   node scripts/update-observers.js --old-name "" --new-name "device-1" --time-range "7:00-7:20" --confirm
 
   # Query all samples on a specific date (entire day)
   node scripts/update-observers.js --date "2024-01-01"
 
-  # Update observer for all samples on a specific date
+  # Update driver for all samples on a specific date
   node scripts/update-observers.js --old-name "device-1" --new-name "device-2" --date "2024-01-01" --confirm
         `);
         process.exit(0);
@@ -558,23 +558,23 @@ Examples:
     }
   }
 
-  // Observer names are only required if updating, not for querying
-  // Allow updating null observers by passing empty string
-  // Note: oldName can be '' (empty string) to update null observers
+  // Driver names are only required if updating, not for querying
+  // Allow updating null drivers by passing empty string
+  // Note: oldName can be '' (empty string) to update null drivers
   const hasOldName = oldName !== null && oldName !== undefined;
   const hasNewName = newName !== null && newName !== undefined;
 
   if ((hasOldName && !hasNewName) || (!hasOldName && hasNewName)) {
-    console.error('Error: Both --old-name and --new-name are required when updating observers');
-    console.error('Use --old-name "" to update null observers, or specify an observer name');
+    console.error('Error: Both --old-name and --new-name are required when updating drivers');
+    console.error('Use --old-name "" to update null drivers, or specify a driver name');
     console.error('Use --help for usage information');
     await pool.end();
     return;
   }
 
-  // If no time range and no observer names, nothing to do
+  // If no time range and no driver names, nothing to do
   if (!hasOldName && !hasNewName && !timeRangeStr && startTime === null && endTime === null) {
-    console.error('Error: Must specify either observer names (--old-name/--new-name) or time range (--time-range or --start-time/--end-time)');
+    console.error('Error: Must specify either driver names (--old-name/--new-name) or time range (--time-range or --start-time/--end-time)');
     console.error('Use --help for usage information');
     await pool.end();
     return;
@@ -670,7 +670,7 @@ Examples:
     await pool.end();
     process.exit(0);
   } catch (error) {
-    console.error('Failed to update observers:', error);
+    console.error('Failed to update drivers:', error);
     await pool.end();
     process.exit(1);
   }

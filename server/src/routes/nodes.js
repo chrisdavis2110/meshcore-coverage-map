@@ -21,41 +21,41 @@ router.get('/get-nodes', async (req, res, next) => {
 
     // Aggregate samples by 6-character geohash prefix
     const sampleAggregates = new Map(); // geohash prefix -> { total, heard, lastTime, repeaters: Set, snr, rssi }
-    // Track driver stats (observer -> { count, heard, lost })
-    // Only include drivers from wardrive app (nodes sending pings), not MQTT observers
-    // Strategy: First pass - identify wardrive app observers (those with at least one sample with snr/rssi)
-    // Second pass - include all samples from identified wardrive app observers
-    const wardriveAppObservers = new Set(); // observers known to be from wardrive app
-    const driverStats = new Map(); // observer name -> { count, heard, lost }
+    // Track driver stats (drivers -> { count, heard, lost })
+    // Only include drivers from wardrive app (nodes sending pings), not MQTT
+    // Strategy: First pass - identify wardrive app drivers (those with at least one sample with snr/rssi)
+    // Second pass - include all samples from identified wardrive app drivers
+    const wardriveAppDrivers = new Set(); // drivers known to be from wardrive app
+    const driverStats = new Map(); // driver name -> { count, heard, lost }
 
-    // First pass: identify wardrive app observers
-    // Strategy: Since MQTT observers no longer have observer field, ANY sample with observer field is from wardrive app
-    // MQTT observers: don't have observer field (we removed it from the scraper)
-    // Wardrive app: always has observer field (device name or "wardrive-user")
-    // Note: Old MQTT data might still have observer fields, but those should be cleaned up with the script
-    const allObservers = new Set();
+    // First pass: identify wardrive app drivers
+    // Strategy: Since MQTT no longer has drivers field, ANY sample with drivers field is from wardrive app
+    // MQTT: don't have drivers field (we removed it from the scraper)
+    // Wardrive app: always has drivers field (device name or "wardrive-user")
+    // Note: Old MQTT data might still have drivers fields, but those should be cleaned up with the script
+    const allDrivers = new Set();
     samples.keys.forEach(s => {
-      const observer = s.metadata.observer;
+      const drivers = s.metadata.drivers;
 
-      // Track all observers for debugging
-      if (observer) {
-        allObservers.add(observer);
+      // Track all drivers for debugging
+      if (drivers) {
+        allDrivers.add(drivers);
       }
 
-      // Any sample with observer field is from wardrive app
-      // (New MQTT samples don't have observer field anymore)
-      if (observer) {
-        wardriveAppObservers.add(observer);
+      // Any sample with drivers field is from wardrive app
+      // (New MQTT samples don't have drivers field anymore)
+      if (drivers) {
+        wardriveAppDrivers.add(drivers);
       }
     });
 
     // Debug logging (remove after testing)
     if (process.env.NODE_ENV !== 'production') {
-      console.log(`[DEBUG] Found ${allObservers.size} unique observers:`, Array.from(allObservers));
-      console.log(`[DEBUG] Identified ${wardriveAppObservers.size} wardrive app observers:`, Array.from(wardriveAppObservers));
+      console.log(`[DEBUG] Found ${allDrivers.size} unique drivers:`, Array.from(allDrivers));
+      console.log(`[DEBUG] Identified ${wardriveAppDrivers.size} wardrive app drivers:`, Array.from(wardriveAppDrivers));
     }
 
-    // Second pass: track stats for all samples from wardrive app observers
+    // Second pass: track stats for all samples from wardrive app drivers
     samples.keys.forEach(s => {
       const prefix = s.name.substring(0, 6); // 6-char geohash prefix
       const rawPath = s.metadata.path || [];
@@ -66,18 +66,18 @@ router.get('/get-nodes', async (req, res, next) => {
       const time = s.metadata.time || 0;
       const snr = s.metadata.snr ?? null;
       const rssi = s.metadata.rssi ?? null;
-      const observer = s.metadata.observer;
+      const drivers = s.metadata.drivers;
 
       // Track driver stats - only for wardrive app users (nodes sending pings)
-      // Include if observer is known to be from wardrive app
-      // All wardrive app samples have observer field, MQTT samples don't (after our changes)
-      const isWardriveApp = observer && wardriveAppObservers.has(observer);
+      // Include if drivers is known to be from wardrive app
+      // All wardrive app samples have drivers field, MQTT samples don't (after our changes)
+      const isWardriveApp = drivers && wardriveAppDrivers.has(drivers);
 
       if (isWardriveApp) {
-        if (!driverStats.has(observer)) {
-          driverStats.set(observer, { count: 0, heard: 0, lost: 0 });
+        if (!driverStats.has(drivers)) {
+          driverStats.set(drivers, { count: 0, heard: 0, lost: 0 });
         }
-        const stats = driverStats.get(observer);
+        const stats = driverStats.get(drivers);
         stats.count++;
         if (heard) {
           stats.heard++;
