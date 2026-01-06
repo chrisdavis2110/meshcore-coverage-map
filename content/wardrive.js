@@ -127,7 +127,7 @@ async function refreshCoverageData() {
 function getCoverageBoxMarker(tileId) {
   const [minLat, minLon, maxLat, maxLon] = geo.decode_bbox(tileId);
   const style = {
-    color: "#FFAB77",
+    color: "#2780F5",
     weight: 1,
     fillOpacity: 0.4,
   };
@@ -613,6 +613,14 @@ async function handleConnect() {
 
   try {
     const connection = await WebBleConnection.open();
+
+    // User cancelled device picker or no device selected
+    if (!connection) {
+        setStatus("No device selected", "text-amber-300");
+        connectBtn.disabled = false;
+        return;
+      }
+
     state.connection = connection;
 
     connection.on("connected", onConnected);

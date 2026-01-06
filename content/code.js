@@ -159,10 +159,40 @@ function sampleMarker(s) {
     ${path.length === 0 ? '' : '<br/>Hit: ' + path.join(',')}`;
   marker.bindPopup(details, { maxWidth: 320 });
   marker.on('add', () => updateSampleMarkerVisibility(marker));
+
+  // Store sample data on marker for event handlers
+  marker.sample = s;
+
+  // Add event handlers to show trace lines when clicking/hovering on sample
+  marker.on('popupopen', e => {
+    // Find the coverage object for this sample (take first 6 chars of geohash)
+    const coverageKey = s.id.substring(0, 6);
+    const coverage = hashToCoverage?.get(coverageKey);
+    if (coverage) {
+      updateAllEdgeVisibility(coverage);
+    }
+  });
+  marker.on('popupclose', () => updateAllEdgeVisibility());
+
+  if (window.matchMedia("(hover: hover)").matches) {
+    marker.on('mouseover', e => {
+      const coverageKey = s.id.substring(0, 6);
+      const coverage = hashToCoverage?.get(coverageKey);
+      if (coverage) {
+        updateAllEdgeVisibility(coverage);
+      }
+    });
+    marker.on('mouseout', () => updateAllEdgeVisibility());
+  }
+
   return marker;
 }
 
 function repeaterMarker(r) {
+  // Ensure repeater ID is normalized to lowercase for consistent matching
+  if (r.id) {
+    r.id = r.id.toLowerCase();
+  }
   const time = fromTruncatedTime(r.time);
   const stale = ageInDays(time) > 2;
   const dead = ageInDays(time) > 8;
@@ -282,21 +312,51 @@ function updateAllEdgeVisibility(end) {
   updateAllCoverageMarkers();
 
   edgeLayer.eachLayer(e => {
-    if (end !== undefined && e.ends.includes(end)) {
-      // e.ends is [repeater, coverage]
-      markersToOverride.push(e.ends[0].marker);
-      coverageToHighlight.push(e.ends[1].marker);
-      e.setStyle({ opacity: 0.6 });
-    } else {
-      e.setStyle({ opacity: 0 });
-    }
-  });
+    let shouldShow = false;
+    if (end !== undefined) {
+        // e.ends is [repeater, coverage]
+        // Check if end matches either the repeater or coverage
+        // Use ID comparison instead of object reference to handle multiple repeaters with same ID
+
+        // Check if it's a repeater (has id, lat, and lon as separate properties)
+        // Repeaters have lat/lon as separate properties, coverage only has pos array
+        if (end.id !== undefined && end.lat !== undefined && end.lon !== undefined) {
+          // end is a repeater - compare by ID (case-insensitive)
+          const edgeRepeaterId = (e.ends[0].id || '').toLowerCase();
+          const endRepeaterId = (end.id || '').toLowerCase();
+          shouldShow = edgeRepeaterId === endRepeaterId && edgeRepeaterId !== '';
+        } else if (end.id !== undefined && Array.isArray(end.pos) && end.lat === undefined) {
+          // end is a coverage - compare by geohash ID
+          // Also check object reference as fallback
+          shouldShow = e.ends[1].id === end.id || e.ends[1] === end;
+        } else {
+          // Fallback to object reference comparison
+          shouldShow = e.ends.includes(end);
+        }
+      }
+
+      if (shouldShow) {
+        if (e.ends[0].marker) {
+          markersToOverride.push(e.ends[0].marker);
+        }
+        if (e.ends[1].marker) {
+          coverageToHighlight.push(e.ends[1].marker);
+        }
+        e.setStyle({ opacity: 0.6 });
+      } else {
+        e.setStyle({ opacity: 0 });
+      }
+    });
 
   // Force connected repeaters to be shown.
-  markersToOverride.forEach(m => updateRepeaterMarkerVisibility(m, true, true));
+  markersToOverride.forEach(m => {
+    if (m) updateRepeaterMarkerVisibility(m, true, true);
+  });
 
   // Highlight connected coverage markers.
-  coverageToHighlight.forEach(m => updateCoverageMarkerHighlight(m, true));
+  coverageToHighlight.forEach(m => {
+    if (m) updateCoverageMarkerHighlight(m, true);
+  });
 }
 
 function renderNodes(nodes) {
@@ -382,7 +442,11 @@ function buildIndexes(nodes) {
   nodes.repeaters.forEach(r => {
     r.hitBy = [];
     r.pos = [r.lat, r.lon];
-    pushMap(idToRepeaters, r.id, r);
+    // Normalize repeater ID to lowercase for consistent lookup
+    // (coverage.rptr stores IDs as lowercase)
+    const normalizedId = r.id.toLowerCase();
+    r.id = normalizedId; // Normalize the ID in the repeater object itself
+    pushMap(idToRepeaters, normalizedId, r);
   });
 
   // Build connections.
