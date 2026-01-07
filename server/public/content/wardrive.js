@@ -770,11 +770,23 @@ async function sendPing({ auto = false } = {}) {
   }
 
   if (sentToMesh) {
+    // Update driver miss count when ping is sent
+    const driverName = state.selfInfo?.name || "wardrive-user";
+    try {
+      await fetch("/update-driver-miss", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: driverName, lat, lon }),
+      });
+    } catch (e) {
+      console.error("Driver miss update failed", e);
+      // Don't fail the ping if driver update fails
+    }
+
     // Send sample to service.
     try {
         const data = { lat, lon };
         // Include driver name (device name or "wardrive-user")
-        const driverName = state.selfInfo?.name || "wardrive-user";
         data.drivers = driverName;
 
         if (repeat) {
