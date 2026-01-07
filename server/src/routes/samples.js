@@ -43,16 +43,17 @@ router.get('/get-samples', async (req, res, next) => {
 // POST /put-sample
 router.post('/put-sample', express.json(), async (req, res, next) => {
   try {
-    const { lat, lon, path, snr, rssi, observed } = req.body;
+    const { lat, lon, path, snr, rssi, observed, time } = req.body;
     const [parsedLat, parsedLon] = parseLocation(lat, lon);
-    const time = Date.now();
+    // Use provided time if available (for migrations), otherwise use current time
+    const sampleTime = time ?? Date.now();
     const normalizedPath = (path ?? []).map(p => p.toLowerCase());
     const geohash = sampleKey(parsedLat, parsedLon);
     
     // Get existing sample to merge metadata
     const existing = await samplesModel.getWithMetadata(geohash);
     let metadata = {
-      time: time,
+      time: sampleTime,
       path: normalizedPath,
       snr: snr ?? null,
       rssi: rssi ?? null,

@@ -96,6 +96,14 @@ async function postSample(destUrl, sample) {
     observed: metadata.observed ?? (metadata.path && metadata.path.length > 0)
   };
   
+  // Preserve original time from source if available
+  // Check both metadata.time and flat time field for compatibility
+  if (metadata.time !== undefined && metadata.time !== null) {
+    body.time = metadata.time;
+  } else if (sample.time !== undefined && sample.time !== null) {
+    body.time = sample.time;
+  }
+  
   // Remove null values (optional, but cleaner)
   if (body.snr === null) delete body.snr;
   if (body.rssi === null) delete body.rssi;
