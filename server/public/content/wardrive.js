@@ -59,7 +59,7 @@ const ignoredRepeaterBtn = $("ignoredRepeaterBtn");
 const wardriveChannelHash = parseInt("e0", 16);
 const wardriveChannelKey = BufferUtils.hexToBytes("4076c315c1ef385fa93f066027320fe5");
 const wardriveChannelName = "#wardrive";
-const refreshTileAge = 3; // Tiles older than this (days) will get pinged again.
+const refreshTileAge = 1; // Tiles older than this (days) will get pinged again.
 
 // --- Global Init ---
 const utf8decoder = new TextDecoder(); // default 'utf-8'
@@ -135,36 +135,44 @@ function formatIsoLocal(iso) {
 
 // Convert success rate (0-1) to a color gradient: green (100%) -> orange -> red (0%)
 function successRateToColor(rate) {
+  // Clamp rate to 0-1
   const clampedRate = Math.max(0, Math.min(1, rate));
 
   let red, green, blue;
 
-  if (clampedRate >= 0.75) {
-    // Dark green (0, 100, 0) to lighter green (50, 150, 50) (75-100%)
-    const t = (clampedRate - 0.75) / 0.25;
-    red = Math.round(0 + (50 - 0) * t);
-    green = Math.round(100 + (150 - 100) * t);
-    blue = Math.round(0 + (50 - 0) * t);
-  } else if (clampedRate >= 0.5) {
-    // Light green (50, 150, 50) to orange (255, 165, 0) (50-75%)
-    const t = (clampedRate - 0.5) / 0.25;
-    red = Math.round(50 + (255 - 50) * t);
-    green = Math.round(150 + (165 - 150) * t);
-    blue = Math.round(50 - 50 * t);
-  } else if (clampedRate >= 0.25) {
-    // Orange (255, 165, 0) to red-orange (255, 100, 0) (25-50%)
-    const t = (clampedRate - 0.25) / 0.25;
-    red = 255;
-    green = Math.round(165 + (100 - 165) * t);
-    blue = 0;
+  if (clampedRate >= 0.8) {
+    // Dark green (0, 100, 0) to lighter green (50, 150, 50) (80-100%)
+    // Making light green closer to dark green
+    const t = (clampedRate - 0.8) / 0.2;       // 0 to 1
+    red = Math.round(0 + (50 - 0) * t);        // 0 -> 50
+    green = Math.round(100 + (150 - 100) * t); // 100 -> 150
+    blue = Math.round(0 + (50 - 0) * t);       // 0 -> 50
+  } else if (clampedRate >= 0.6) {
+    // Light green (50, 150, 50) to orange (255, 165, 0) (60-80%)
+    const t = (clampedRate - 0.6) / 0.2;        // 0 to 1
+    red = Math.round(50 + (255 - 50) * t);      // 50 -> 255
+    green = Math.round(150 + (165 - 150) * t);  // 150 -> 165
+    blue = Math.round(50 - 50 * t);             // 50 -> 0
+  } else if (clampedRate >= 0.4) {
+    // Orange (255, 165, 0) to red-orange (255, 100, 0) (40-60%)
+    const t = (clampedRate - 0.4) / 0.2;          // 0 to 1
+    red = 255;                                    // 255
+    green = Math.round(165 + (100 - 165) * t);    // 165 -> 100
+    blue = 0;                                     // 0
+  } else if (clampedRate >= 0.2) {
+    // Red-orange (255, 100, 0) to red (255, 0, 0) (20-40%)
+    const t = (clampedRate - 0.2) / 0.2;       // 0 to 1
+    red = 255;                                 // 255
+    green = Math.round(100 - 100 * t);         // 1000 -> 0
+    blue = 0;                                  // 0
   } else {
-    // Red-orange (255, 100, 0) to red (255, 0, 0) (0-25%)
-    const t = clampedRate / 0.25;
-    red = 255;
-    green = Math.round(100 - 100 * t);
-    blue = 0;
+    // Red (255, 0, 0) (0-20%)
+    red = 255;                      // 255
+    green = 0;                      // 0
+    blue = 0;                       // 0
   }
 
+  // Convert to hex
   const toHex = (n) => {
     const hex = n.toString(16);
     return hex.length === 1 ? '0' + hex : hex;
@@ -295,10 +303,10 @@ function getCoverageBoxMarker(tileId) {
   const fresh = info.a <= refreshTileAge;
   const fillColor = fresh ? color : fadeColor(color, .4);
   // Fill should be gray initially if no ping data, otherwise use marker color
-  const finalFillColor = (info.o === 0 && info.h === 0) ? '#6A6A6A' : fillColor;
-  // Gray tiles (#6A6A6A) should have 33% opacity, others use 60%
-  const fillOpacity = finalFillColor === '#6A6A6A' ? 0.33 : 0.6;
-  const finalBorderColor = (info.o === 0 && info.h === 0) ? borderColor : color;
+  const finalFillColor = (!fresh && info.o === 0 && info.h === 0) ? '#6A6A6A' : fillColor;
+  // Gray tiles (#6A6A6A) should have 33% opacity, others use 85%
+  const fillOpacity = finalFillColor === '#6A6A6A' ? 0.25 : 0.85;
+  const finalBorderColor = (!fresh && info.o === 0 && info.h === 0) ? borderColor : color;
 
   const style = {
     color: finalBorderColor,
@@ -498,8 +506,12 @@ async function updateCurrentPosition() {
   const lon = pos.coords.longitude;
   state.currentPos = [lat, lon];
 
-  currentLocMarker.setLatLng(state.currentPos);
-  map.panTo(state.currentPos);
+  if (currentLocMarker) {
+    currentLocMarker.setLatLng(state.currentPos);
+  }
+  if (map) {
+    map.panTo(state.currentPos);
+  }
 
   const coverageTileId = coverageKey(lat, lon);
   // Check if tile needs ping: not in coveredTiles OR older than refreshTileAge days
@@ -761,11 +773,23 @@ async function sendPing({ auto = false } = {}) {
   }
 
   if (sentToMesh) {
+    // Update driver miss count when ping is sent
+    const driverName = state.selfInfo?.name || "wardrive-user";
+    try {
+      await fetch("/update-driver-miss", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: driverName, lat, lon }),
+      });
+    } catch (e) {
+      console.error("Driver miss update failed", e);
+      // Don't fail the ping if driver update fails
+    }
+
     // Send sample to service.
     try {
       const data = { lat, lon };
       // Include driver name (device name or "wardrive-user")
-      const driverName = state.selfInfo?.name || "wardrive-user";
       data.drivers = driverName;
 
       if (repeat) {
@@ -1124,73 +1148,60 @@ async function onLogRxData(frame) {
 }
 
 // --- Event bindings ---
-function attachEventListeners() {
-  if (!connectBtn) {
-    console.error("Connect button not found!");
-    return;
-  }
+connectBtn.addEventListener("click", () => {
+  handleConnect().catch(console.error);
+});
 
-  connectBtn.addEventListener("click", () => {
-    handleConnect().catch(console.error);
+if (disconnectBtn) {
+  disconnectBtn.addEventListener("click", () => {
+    handleDisconnect().catch(console.error);
   });
+}
 
-  if (disconnectBtn) {
-    disconnectBtn.addEventListener("click", () => {
-      handleDisconnect().catch(console.error);
-    });
+sendPingBtn.addEventListener("click", () => {
+  sendPing({ auto: false }).catch(console.error);
+});
+
+autoToggleBtn.addEventListener("click", async () => {
+  if (state.running) {
+    stopAutoPing();
+    setStatus("Auto mode stopped", "text-slate-300");
+  } else {
+    await startAutoPing();
   }
+});
 
-  if (sendPingBtn) {
-    sendPingBtn.addEventListener("click", () => {
-      sendPing({ auto: false }).catch(console.error);
-    });
-  }
+if (pingModeSelect) {
+  pingModeSelect.addEventListener("change", async () => {
+    const pingMode = pingModeSelect.value;
 
-  if (autoToggleBtn) {
-    autoToggleBtn.addEventListener("click", async () => {
-      if (state.running) {
-        stopAutoPing();
-        setStatus("Auto mode stopped", "text-slate-300");
+    if (state.pingMode === pingMode) {
+      return;
+    }
+
+    stopAutoPing();
+    state.pingMode = pingMode;
+    if (intervalSection) {
+      if (pingMode === "interval") {
+        intervalSection.classList.remove("hidden");
       } else {
-        await startAutoPing();
+        intervalSection.classList.add("hidden");
       }
-    });
-  }
+    }
+  });
+}
 
-  if (pingModeSelect) {
-    pingModeSelect.addEventListener("change", async () => {
-      const pingMode = pingModeSelect.value;
+ignoredRepeaterBtn.addEventListener("click", promptIgnoredId);
 
-      if (state.pingMode === pingMode) {
-        return;
-      }
-
-      stopAutoPing();
-      state.pingMode = pingMode;
-      if (intervalSection) {
-        if (pingMode === "interval") {
-          intervalSection.classList.remove("hidden");
-        } else {
-          intervalSection.classList.add("hidden");
-        }
-      }
-    });
-  }
-
-  if (ignoredRepeaterBtn) {
-    ignoredRepeaterBtn.addEventListener("click", promptIgnoredId);
-  }
-
-  if (clearLogBtn) {
-    clearLogBtn.addEventListener("click", () => {
-      if (!confirm("Clear local wardrive log?")) return;
-      state.log = [];
-      state.lastSample = null;
-      updateLastSampleInfo();
-      saveLog();
-      renderLog();
-    });
-  }
+if (clearLogBtn) {
+  clearLogBtn.addEventListener("click", () => {
+    if (!confirm("Clear local wardrive log?")) return;
+    state.log = [];
+    state.lastSample = null;
+    updateLastSampleInfo();
+    saveLog();
+    renderLog();
+  });
 }
 
 // Automatically release wake lock when the page is hidden.
@@ -1221,9 +1232,6 @@ if ('bluetooth' in navigator) {
 export async function onLoad() {
   try {
     console.log('Wardrive: Starting onLoad...');
-
-    // Attach event listeners first
-    attachEventListeners();
 
     // Load config from server first
     await loadConfig();

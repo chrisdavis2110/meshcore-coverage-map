@@ -337,31 +337,36 @@ function successRateToColor(rate) {
 
   let red, green, blue;
 
-  if (clampedRate >= 0.75) {
-    // Dark green (0, 100, 0) to lighter green (50, 150, 50) (75-100%)
+  if (clampedRate >= 0.8) {
+    // Dark green (0, 100, 0) to lighter green (50, 150, 50) (80-100%)
     // Making light green closer to dark green
-    const t = (clampedRate - 0.75) / 0.25; // 0 to 1
-    red = Math.round(0 + (50 - 0) * t);     // 0 -> 50
+    const t = (clampedRate - 0.8) / 0.2;       // 0 to 1
+    red = Math.round(0 + (50 - 0) * t);        // 0 -> 50
     green = Math.round(100 + (150 - 100) * t); // 100 -> 150
-    blue = Math.round(0 + (50 - 0) * t);    // 0 -> 50
-  } else if (clampedRate >= 0.5) {
-    // Light green (50, 150, 50) to orange (255, 165, 0) (50-75%)
-    const t = (clampedRate - 0.5) / 0.25; // 0 to 1
-    red = Math.round(50 + (255 - 50) * t);   // 50 -> 255
-    green = Math.round(150 + (165 - 150) * t); // 150 -> 165
-    blue = Math.round(50 - 50 * t);           // 50 -> 0
-  } else if (clampedRate >= 0.25) {
-    // Orange (255, 165, 0) to red-orange (255, 100, 0) (25-50%)
-    const t = (clampedRate - 0.25) / 0.25; // 0 to 1
+    blue = Math.round(0 + (50 - 0) * t);       // 0 -> 50
+  } else if (clampedRate >= 0.6) {
+    // Light green (50, 150, 50) to orange (255, 165, 0) (60-80%)
+    const t = (clampedRate - 0.6) / 0.2;        // 0 to 1
+    red = Math.round(50 + (255 - 50) * t);      // 50 -> 255
+    green = Math.round(150 + (165 - 150) * t);  // 150 -> 165
+    blue = Math.round(50 - 50 * t);             // 50 -> 0
+  } else if (clampedRate >= 0.4) {
+    // Orange (255, 165, 0) to red-orange (255, 100, 0) (40-60%)
+    const t = (clampedRate - 0.4) / 0.2;          // 0 to 1
     red = 255;                                    // 255
     green = Math.round(165 + (100 - 165) * t);    // 165 -> 100
-    blue = 0;                                      // 0
+    blue = 0;                                     // 0
+  } else if (clampedRate >= 0.2) {
+    // Red-orange (255, 100, 0) to red (255, 0, 0) (20-40%)
+    const t = (clampedRate - 0.2) / 0.2;       // 0 to 1
+    red = 255;                                 // 255
+    green = Math.round(100 - 100 * t);         // 1000 -> 0
+    blue = 0;                                  // 0
   } else {
-    // Red-orange (255, 100, 0) to red (255, 0, 0) (0-25%)
-    const t = clampedRate / 0.25; // 0 to 1
-    red = 255;                                    // 255
-    green = Math.round(100 - 100 * t);            // 100 -> 0
-    blue = 0;                                      // 0
+    // Red (255, 0, 0) (0-20%)
+    red = 255;                      // 255
+    green = 0;                      // 0
+    blue = 0;                       // 0
   }
 
   // Convert to hex
@@ -824,6 +829,8 @@ function buildIndexes(nodes) {
         lost: sampleLost,
         time: s.time || 0,
         rptr: (s.path || s.rptr) ? [...(s.path || s.rptr)] : [],
+        snr: (s.snr !== null && s.snr !== undefined) ? s.snr : undefined,
+        rssi: (s.rssi !== null && s.rssi !== undefined) ? s.rssi : undefined,
       };
       hashToCoverage.set(key, coverage);
     } else {
@@ -843,6 +850,17 @@ function buildIndexes(nodes) {
             coverage.rptr.push(rLower);
           }
         });
+      }
+      // Merge snr/rssi - use max value (same logic as backend)
+      if (s.snr !== null && s.snr !== undefined) {
+        coverage.snr = (coverage.snr === null || coverage.snr === undefined)
+          ? s.snr
+          : Math.max(coverage.snr, s.snr);
+      }
+      if (s.rssi !== null && s.rssi !== undefined) {
+        coverage.rssi = (coverage.rssi === null || coverage.rssi === undefined)
+          ? s.rssi
+          : Math.max(coverage.rssi, s.rssi);
       }
     }
   });

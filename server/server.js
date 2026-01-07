@@ -43,8 +43,8 @@ if (fs.existsSync(sslKeyPath) && fs.existsSync(sslCertPath)) {
   console.warn('  2. Copy your Let\'s Encrypt certificates:');
   console.warn('     cp /etc/letsencrypt/live/coverage.wcmesh.com/privkey.pem server/ssl/key.pem');
   console.warn('     cp /etc/letsencrypt/live/coverage.wcmesh.com/fullchain.pem server/ssl/cert.pem');
-  console.warn('  3. Or generate self-signed certificates:');
-  console.warn('     openssl req -x509 -newkey rsa:4096 -keyout server/ssl/key.pem -out server/ssl/cert.pem -days 365 -nodes');
+  console.warn('  3. Or generate certificates in the ssl/ directory:');
+  console.warn('     Run: openssl req -x509 -newkey rsa:4096 -keyout ssl/key.pem -out ssl/cert.pem -days 365 -nodes');
 }
 
 // Always start HTTP server (for non-BLE features)

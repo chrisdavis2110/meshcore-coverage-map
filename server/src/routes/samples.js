@@ -1,8 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const samplesModel = require('../models/samples');
+const driversModel = require('../models/drivers');
 const repeatersModel = require('../models/repeaters');
-const { parseLocation, sampleKey, definedOr, or, ageInDays } = require('../utils/shared');
+const { parseLocation, sampleKey, coverageKey, definedOr, or, ageInDays } = require('../utils/shared');
 
 // GET /get-samples?p=<prefix>
 router.get('/get-samples', async (req, res, next) => {
@@ -64,9 +65,6 @@ router.post('/put-sample', express.json(), async (req, res, next) => {
       drivers: drivers ?? null
     };
 
-    // Simple logic: Wardrive always sends drivers, MQTT never sends drivers
-    // - If drivers is provided (non-null) → it's from wardrive → always use it
-    // - If drivers is null/undefined → it's from MQTT → preserve existing drivers, never set it
     if (metadata.drivers != null && metadata.drivers !== '') {
       // Wardrive request - always use the drivers (for both hits and misses)
       // This ensures driver stats track all pings from the user
@@ -93,6 +91,31 @@ router.post('/put-sample', express.json(), async (req, res, next) => {
 
     // Upsert - the database will handle merging paths atomically
     await samplesModel.upsert(geohash, metadata.time, metadata.path, metadata.observed, metadata.snr, metadata.rssi, metadata.drivers);
+
+    // If ping is observed and we have a driver name, convert miss to hit
+    // (decrement miss, increment hit) only if there's a recent miss for this driver+geohash+time
+    // Skip if drivers is null or empty (handles cases where drivers column may not exist)
+    const isObserved = metadata.observed || normalizedPath.length > 0;
+    if (isObserved && metadata.drivers && metadata.drivers !== '' && metadata.drivers !== null) {
+      try {
+        const coverageGeohash = coverageKey(parsedLat, parsedLon);
+        // Check driver, geohash, and time (within 5 minute window) before converting
+        const converted = await driversModel.convertMissToHitIfRecent(
+          metadata.drivers,
+          coverageGeohash,
+          metadata.time,
+          300000 // 5 minute time window
+        );
+        if (!converted) {
+          // No recent miss found, just increment hit without decrementing miss
+          await driversModel.incrementHit(metadata.drivers, coverageGeohash);
+        }
+      } catch (e) {
+        // Log but don't fail the request if driver update fails
+        // This handles cases where drivers table or column might not exist
+        console.warn(`Failed to update driver hit for ${metadata.drivers}:`, e);
+      }
+    }
 
     // If we have a repeater public key, update/create the repeater entry
     if (repeaterPubkey && normalizedPath.length > 0) {

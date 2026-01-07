@@ -173,6 +173,11 @@ def handle_advert(packet):
     # No location in packet and no override - skip this repeater
     return
 
+  # Ignore repeaters with location (0, 0)
+  if lat == 0 and lon == 0:
+    print(f"Ignoring repeater {id} with location (0, 0)")
+    return
+
   if flags & 0x20: # ADV_FEAT1_MASK
     payload.read(2)
   if flags & 0x40: # ADV_FEAT2_MASK
