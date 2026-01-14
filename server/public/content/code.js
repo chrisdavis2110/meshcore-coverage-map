@@ -25,10 +25,12 @@ let queryMode = 'coverage'; // 'coverage', 'observed-pct', 'heard-pct', 'last-up
 
 // Data
 let nodes = null; // Graph data from the last refresh
-let idToRepeaters = null; // Index of id -> [repeater]
+let idToRepeaters = null; // Index of pubkey (or id if no pubkey) -> [repeater]
+let idToRepeatersById = null; // Index of 2-char id -> [repeater] for matching coverage.rptr
 let hashToCoverage = null; // Index of geohash -> coverage
 let edgeList = null; // List of connected repeater and coverage
 let individualSamples = null; // Individual (non-aggregated) samples
+let driverFilters = {}; // Driver filter state
 
 // Map layers (will be initialized after map is created)
 let coverageLayer = null;
@@ -166,6 +168,7 @@ repeatersControl.onAdd = m => {
       box-shadow: 0 2px 4px rgba(0,0,0,0.2);
       white-space: nowrap;
       width: 100%;
+      margin-bottom: 4px;
     ">Top Repeaters</button>
     <div id="repeaters-list" style="
       display: none;
@@ -185,35 +188,35 @@ repeatersControl.onAdd = m => {
       <div id="repeaters-list-content" style="padding: 0;"></div>
     </div>
   `;
-  
-  const button = div.querySelector("#repeaters-button");
-  const list = div.querySelector("#repeaters-list");
-  const content = div.querySelector("#repeaters-list-content");
-  
-  button.addEventListener("click", (e) => {
+
+  const repeatersButton = div.querySelector("#repeaters-button");
+  const repeatersList = div.querySelector("#repeaters-list");
+  const repeatersContent = div.querySelector("#repeaters-list-content");
+
+  repeatersButton.addEventListener("click", (e) => {
     e.stopPropagation();
-    if (list.style.display === "none") {
-      updateRepeatersList(content);
-      list.style.display = "block";
+    if (repeatersList.style.display === "none") {
+      updateRepeatersList(repeatersContent);
+      repeatersList.style.display = "block";
     } else {
-      list.style.display = "none";
+      repeatersList.style.display = "none";
     }
   });
-  
+
   // Close when clicking outside (use the map parameter 'm' passed to onAdd)
   const closeHandler = () => {
-    list.style.display = "none";
+    repeatersList.style.display = "none";
   };
   m.on("click", closeHandler);
-  
-  // Prevent clicks inside the list from closing it
-  list.addEventListener("click", (e) => {
+
+  // Prevent clicks inside the lists from closing them
+  repeatersList.addEventListener("click", (e) => {
     e.stopPropagation();
   });
-  
+
   L.DomEvent.disableClickPropagation(div);
   L.DomEvent.disableScrollPropagation(div);
-  
+
   return div;
 };
 // Initialization function - loads config and sets up map
@@ -229,7 +232,7 @@ async function initMap() {
     maxZoom: 19,
     attribution: '© OpenStreetMap contributors | <a href="/howto" target="_blank">Contribute</a>'
   }).addTo(map);
-  
+
   // Create map layers
   coverageLayer = L.layerGroup().addTo(map);
   edgeLayer = L.layerGroup().addTo(map);
@@ -242,7 +245,7 @@ async function initMap() {
   // Add controls
   mapControl.addTo(map);
   repeatersControl.addTo(map);
-  
+
   // Max radius circle (only show if distance limit is enabled)
   if (maxDistanceMiles > 0) {
     L.circle(centerPos, {
@@ -252,7 +255,7 @@ async function initMap() {
       fill: false
     }).addTo(map);
   }
-  
+
   // Load initial data
   await refreshCoverage();
 }
@@ -748,7 +751,7 @@ function coverageMarker(coverage) {
   }
   details += `Updated: ${date.toLocaleString()}`;
   if (coverage.rptr && coverage.rptr.length > 0) {
-    details += `<br/>Repeaters: ${coverage.rptr.join(',')}`;
+    details += `<br/>Repeaters: ${coverage.rptr.map(r => r.toUpperCase()).join(',')}`;
   }
   if (coverage.snr !== null && coverage.snr !== undefined) {
     details += `<br/>SNR: ${coverage.snr} dB`;
@@ -778,12 +781,12 @@ function sampleMarker(s) {
   const color = successRateToColor(successRate);
   // Scale marker size based on number of samples (min 5, max 15)
   const radius = Math.min(Math.max(5, Math.sqrt(s.total || 1) * 2), 15);
-  const style = { 
-    radius: radius, 
-    weight: 2, 
-    color: color, 
+  const style = {
+    radius: radius,
+    weight: 2,
+    color: color,
     fillColor: color,
-    fillOpacity: 0.7 
+    fillOpacity: 0.7
   };
   const marker = L.circleMarker([lat, lon], style);
   const date = new Date(fromTruncatedTime(s.time));
@@ -806,6 +809,30 @@ function sampleMarker(s) {
   details += `<br/>Updated: ${date.toLocaleString()}`;
   marker.bindPopup(details, { maxWidth: 320 });
   marker.on('add', () => updateSampleMarkerVisibility(marker));
+
+  // Store sample data on marker for event handlers
+  marker.sample = s;
+
+  // Add event handlers to show trace lines when clicking/hovering on sample
+  marker.on('popupopen', e => {
+    // Find the coverage object for this sample (sample ID is already 6-char geohash)
+    const coverage = hashToCoverage?.get(s.id);
+    if (coverage) {
+      updateAllEdgeVisibility(coverage);
+    }
+  });
+  marker.on('popupclose', () => updateAllEdgeVisibility());
+
+  if (window.matchMedia("(hover: hover)").matches) {
+    marker.on('mouseover', e => {
+      const coverage = hashToCoverage?.get(s.id);
+      if (coverage) {
+        updateAllEdgeVisibility(coverage);
+      }
+    });
+    marker.on('mouseout', () => updateAllEdgeVisibility());
+  }
+
   return marker;
 }
 
@@ -814,12 +841,12 @@ function individualSampleMarker(sample) {
   // Individual sample: heard = has path, lost = no path
   const heard = sample.metadata.path && sample.metadata.path.length > 0;
   const color = heard ? successRateToColor(1.0) : successRateToColor(0.0); // Green if heard, red if lost
-  const style = { 
+  const style = {
     radius: 4, // Smaller for individual samples
-    weight: 1, 
-    color: color, 
+    weight: 1,
+    color: color,
     fillColor: color,
-    fillOpacity: 0.8 
+    fillOpacity: 0.8
   };
   const marker = L.circleMarker([lat, lon], style);
   const timeValue = sample.metadata.time;
@@ -844,17 +871,51 @@ function individualSampleMarker(sample) {
     details += `<br/>Time: ${date.toLocaleString()}`;
   }
   marker.bindPopup(details, { maxWidth: 320 });
+
+  // Store sample data on marker for event handlers
+  marker.sample = sample;
+
+  // Add event handlers to show trace lines when clicking/hovering on sample
+  marker.on('popupopen', e => {
+    // Find the coverage object for this sample (take first 6 chars of geohash)
+    const coverageKey = sample.name.substring(0, 6);
+    const coverage = hashToCoverage?.get(coverageKey);
+    if (coverage) {
+      updateAllEdgeVisibility(coverage);
+    }
+  });
+  marker.on('popupclose', () => updateAllEdgeVisibility());
+
+  if (window.matchMedia("(hover: hover)").matches) {
+    marker.on('mouseover', e => {
+      const coverageKey = sample.name.substring(0, 6);
+      const coverage = hashToCoverage?.get(coverageKey);
+      if (coverage) {
+        updateAllEdgeVisibility(coverage);
+      }
+    });
+    marker.on('mouseout', () => updateAllEdgeVisibility());
+  }
+
   return marker;
 }
 
 function repeaterMarker(r) {
+  // Ensure repeater ID is normalized to lowercase for consistent matching
+  if (r.id) {
+    r.id = r.id.toLowerCase();
+  }
   const time = fromTruncatedTime(r.time);
   const stale = ageInDays(time) > 2;
   const dead = ageInDays(time) > 8;
   const ageClass = (dead ? "dead" : (stale ? "stale" : ""));
+
+  // Display only first 2 chars in the circle (for backward compatibility)
+  const displayId = r.id.substring(0, 2).toUpperCase();
+
   const icon = L.divIcon({
     className: '', // Don't use default Leaflet style.
-    html: `<div class="repeater-dot ${ageClass}"><span>${r.id}</span></div>`,
+    html: `<div class="repeater-dot ${ageClass}"><span>${displayId}</span></div>`,
     iconSize: [20, 20],
     iconAnchor: [10, 10]
   });
@@ -967,7 +1028,8 @@ function updateAllEdgeVisibility(end) {
   updateAllCoverageMarkers();
 
   edgeLayer.eachLayer(e => {
-    if (end !== undefined && e.ends.includes(end)) {
+    let shouldShow = false;
+    if (end !== undefined) {
       // e.ends is [repeater, coverage]
       markersToOverride.push(e.ends[0].marker);
       coverageToHighlight.push(e.ends[1].marker);
@@ -978,10 +1040,14 @@ function updateAllEdgeVisibility(end) {
   });
 
   // Force connected repeaters to be shown.
-  markersToOverride.forEach(m => updateRepeaterMarkerVisibility(m, true, true));
+  markersToOverride.forEach(m => {
+    if (m) updateRepeaterMarkerVisibility(m, true, true);
+  });
 
   // Highlight connected coverage markers.
-  coverageToHighlight.forEach(m => updateCoverageMarkerHighlight(m, true));
+  coverageToHighlight.forEach(m => {
+    if (m) updateCoverageMarkerHighlight(m, true);
+  });
 }
 
 function renderNodes(nodes) {
@@ -1023,7 +1089,18 @@ function renderNodes(nodes) {
   });
 
   // Add edges.
+  // Use pubkey (or id) as key to ensure edges are unique per repeater pubkey
+  const edgeKeys = new Set();
   edgeList.forEach(e => {
+    const edgeKey = e.key || (e.repeater.pubkey || e.repeater.id);
+
+    // Skip duplicate edges (same repeater pubkey to same coverage)
+    const uniqueKey = `${edgeKey}-${e.coverage.id}`;
+    if (edgeKeys.has(uniqueKey)) {
+      return;
+    }
+    edgeKeys.add(uniqueKey);
+
     const style = {
       weight: 3,
       opacity: 0,
@@ -1040,6 +1117,7 @@ function renderNodes(nodes) {
 function buildIndexes(nodes) {
   hashToCoverage = new Map();
   idToRepeaters = new Map();
+  idToRepeatersById = new Map();
   edgeList = [];
 
   // Index coverage items.
@@ -1079,7 +1157,7 @@ function buildIndexes(nodes) {
     let coverage = hashToCoverage.get(key);
     const sampleHeard = s.heard || 0;
     const sampleLost = s.lost || 0;
-    
+
     if (!coverage) {
       const { latitude: lat, longitude: lon } = geo.decode(key);
       coverage = {
@@ -1118,35 +1196,54 @@ function buildIndexes(nodes) {
       }
       // Merge snr/rssi - use max value (same logic as backend)
       if (s.snr !== null && s.snr !== undefined) {
-        coverage.snr = (coverage.snr === null || coverage.snr === undefined) 
-          ? s.snr 
+        coverage.snr = (coverage.snr === null || coverage.snr === undefined)
+          ? s.snr
           : Math.max(coverage.snr, s.snr);
       }
       if (s.rssi !== null && s.rssi !== undefined) {
-        coverage.rssi = (coverage.rssi === null || coverage.rssi === undefined) 
-          ? s.rssi 
+        coverage.rssi = (coverage.rssi === null || coverage.rssi === undefined)
+          ? s.rssi
           : Math.max(coverage.rssi, s.rssi);
       }
     }
   });
 
   // Index repeaters.
+  idToRepeatersById = new Map(); // Clear and rebuild
   nodes.repeaters.forEach(r => {
     r.hitBy = [];
     r.pos = [r.lat, r.lon];
-    pushMap(idToRepeaters, r.id, r);
+    // Normalize repeater ID to lowercase for consistent lookup
+    // (coverage.rptr stores IDs as lowercase)
+    const normalizedId = r.id.toLowerCase();
+    r.id = normalizedId; // Normalize the ID in the repeater object itself
+
+    // Normalize pubkey if available
+    r.pubkey = r.pubkey ? r.pubkey.toLowerCase() : null;
+
+    // Use full public key as primary key if available, otherwise fall back to ID
+    // This ensures edges are unique per pubkey
+    const key = r.pubkey || normalizedId;
+    pushMap(idToRepeaters, key, r);
+
+    // Also index by 2-char ID for matching coverage.rptr (which only has IDs)
+    pushMap(idToRepeatersById, normalizedId, r);
   });
 
   // Build connections.
   hashToCoverage.entries().forEach(([key, coverage]) => {
-    coverage.rptr.forEach(r => {
-      const candidateRepeaters = idToRepeaters.get(r);
+    coverage.rptr.forEach(rId => {
+      // Look up by 2-char ID first (coverage.rptr only has IDs)
+      const candidateRepeaters = idToRepeatersById.get(rId);
       if (candidateRepeaters === undefined)
         return;
 
       const bestRepeater = getBestRepeater(coverage.pos, candidateRepeaters);
       bestRepeater.hitBy.push(coverage);
-      edgeList.push({ repeater: bestRepeater, coverage: coverage });
+
+      // Use pubkey (or id) as the edge key for uniqueness
+      const edgeKey = bestRepeater.pubkey || bestRepeater.id;
+      edgeList.push({ repeater: bestRepeater, coverage: coverage, key: edgeKey });
     });
   });
 }
@@ -1160,7 +1257,7 @@ function updateRepeatersList(contentDiv) {
 
   // Count geohashes per repeater
   const repeaterGeohashCount = new Map();
-  
+
   let coverageWithRepeaters = 0;
   hashToCoverage.forEach((coverage) => {
     if (coverage.rptr && coverage.rptr.length > 0) {
@@ -1207,7 +1304,7 @@ function updateRepeatersList(contentDiv) {
 
   // Create simple concise list
   let html = '<div style="padding: 8px;">';
-  
+
   repeaterStats.forEach((repeater) => {
     const prefix = repeater.id.substring(0, 2).toUpperCase();
     html += `<div style="padding: 8px 12px; color: #e2e8f0; border-bottom: 1px solid #4a5568; font-size: 13px; display: flex; justify-content: space-between; align-items: center;">
@@ -1218,7 +1315,7 @@ function updateRepeatersList(contentDiv) {
       <span style="color: #34d399; font-weight: 600; font-size: 13px;">${repeater.geohashCount}</span>
     </div>`;
   });
-  
+
   html += '</div>';
   contentDiv.innerHTML = html;
 }
@@ -1232,7 +1329,7 @@ async function loadIndividualSamples() {
       throw new Error(`HTTP ${resp.status} ${resp.statusText}`);
 
     individualSamples = await resp.json();
-    
+
     // Clear sample layer and render with individual samples
     sampleLayer.clearLayers();
     individualSamples.keys.forEach(s => {

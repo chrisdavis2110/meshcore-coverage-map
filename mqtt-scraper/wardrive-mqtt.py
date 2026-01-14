@@ -28,6 +28,12 @@ SERVICE_HOST = CONFIG["service_host"]
 ADD_REPEATER_URL = "/put-repeater"
 ADD_SAMPLE_URL = "/put-sample"
 
+# Repeater location overrides: map full public key (lowercase hex) to (lat, lon)
+REPEATER_OVERRIDES = {
+  pubkey.lower(): tuple(loc)
+  for pubkey, loc in CONFIG.get("repeater_overrides", {}).items()
+}
+
 SEEN = deque(maxlen=100)
 COORD_PAIR = re.compile(
   r"""
@@ -48,7 +54,7 @@ def is_valid_location(lat: float, lon: float):
 
   # Skip distance check if valid_dist is 0 or less (no limit)
   if (VALID_DIST > 0):
-    distance = haversine(CENTER_POSITION, (lat, lon), unit=Unit.MILES) 
+    distance = haversine(CENTER_POSITION, (lat, lon), unit=Unit.MILES)
     if (distance > VALID_DIST):
       print(f"{(lat, lon)} distance {distance} exceeds max distance")
       return False
@@ -79,7 +85,7 @@ def upload_sample(lat: float, lon: float, path: list[str]):
 
 
 # Uploads a repeater update to the service.
-def upload_repeater(id: str, name: str, lat: float, lon: float):
+def upload_repeater(id: str, name: str, lat: float, lon: float, pubkey: str = None):
   payload = {
     "id": id,
     "name": name,
@@ -87,6 +93,8 @@ def upload_repeater(id: str, name: str, lat: float, lon: float):
     "lon": lon,
     "path": []
   }
+  if pubkey:
+    payload["pubkey"] = pubkey
   url = SERVICE_HOST + ADD_REPEATER_URL
   post_to_service(url, payload)
 
@@ -145,14 +153,31 @@ def handle_advert(packet):
   # Only care about repeaters (2).
   if type != 2: return
 
+  pubkey_hex = pubkey  # Full 64-char hex public key
   id = pubkey[0:2]
   lat = 0
   lon = 0
   name = ""
 
-  if flags & 0x10: # ADV_LATLON_MASK
+  # Check for location override first (using full public key)
+  pubkey_lower = pubkey_hex.lower()
+  if pubkey_lower in REPEATER_OVERRIDES:
+    override_lat, override_lon = REPEATER_OVERRIDES[pubkey_lower]
+    lat = override_lat
+    lon = override_lon
+    print(f"Using override location for repeater {id} (pubkey: {pubkey_hex[:8]}...): ({lat}, {lon})")
+  elif flags & 0x10: # ADV_LATLON_MASK
     lat = int.from_bytes(payload.read(4), byteorder="little", signed=True) / 1e6
     lon = int.from_bytes(payload.read(4), byteorder="little", signed=True) / 1e6
+  else:
+    # No location in packet and no override - skip this repeater
+    return
+
+  # Ignore repeaters with location (0, 0)
+  if lat == 0 and lon == 0:
+    print(f"Ignoring repeater {id} with location (0, 0)")
+    return
+
   if flags & 0x20: # ADV_FEAT1_MASK
     payload.read(2)
   if flags & 0x40: # ADV_FEAT2_MASK
@@ -161,14 +186,14 @@ def handle_advert(packet):
     name = to_utf8(payload.read())
 
   if is_valid_location(lat, lon):
-    upload_repeater(id, name, lat, lon)
+    upload_repeater(id, name, lat, lon, pubkey_hex)
 
 
 # Handle a GROUP_MSG packet.
 def handle_channel_msg(packet):
   # See https://github.com/meshcore-dev/MeshCore/blob/9405e8bee35195866ad1557be4af5f0c140b6ad1/src/Mesh.cpp#L206C1-L206C33
   payload = io.BytesIO(packet["payload"])
-  
+
   channel_hash = payload.read(1).hex()
   mac = payload.read(2)
   encrypted = payload.read()
@@ -230,7 +255,7 @@ def on_disconnect(client, userdata, flags, reason_code, properties = None):
 # Callback when a PUBLISH message is received from the broker.
 def on_message(client, userdata, msg):
   data = {}
-  
+
   try:
     data = json.loads(msg.payload.decode())
 
@@ -240,8 +265,11 @@ def on_message(client, userdata, msg):
     packet_hash = data.get("hash")
     if (packet_hash is None or packet_hash in SEEN): return
 
-    # Is this one of the "authoritative" observers in the region?
-    if data["origin"] not in CONFIG["watched_observers"]: return
+    # Filter by watched observers if the list is not empty
+    # If watched_observers is empty, process all packets
+    watched_observers = CONFIG.get("watched_observers", [])
+    if watched_observers and data["origin"] not in watched_observers:
+      return
 
     # Is this an advert (4) or group message (5)?
     packet_type = data["packet_type"]
@@ -274,7 +302,7 @@ def main():
   mqtt_mode = CONFIG.get("mqtt_mode", "public")
   use_websockets = CONFIG.get("mqtt_use_websockets", True) if mqtt_mode == "public" else False
   use_tls = CONFIG.get("mqtt_use_tls", True) if mqtt_mode == "public" else False
-  
+
   # Initialize the MQTT client
   transport = "websockets" if use_websockets else "tcp"
   client = mqtt.Client(
@@ -288,12 +316,12 @@ def main():
   use_auth_token = CONFIG.get("mqtt_use_auth_token", False)
   username = CONFIG.get("mqtt_username")
   password = CONFIG.get("mqtt_password")
-  
+
   # Only set authentication if explicitly provided
   if use_auth_token:
     # Token-based authentication (optional, for brokers that require it)
     token = CONFIG.get("mqtt_token")
-    
+
     # If token is not provided but keys are, generate token automatically
     if (not token or token == "TODO" or token is None) and CONFIG.get("mqtt_public_key") and CONFIG.get("mqtt_private_key"):
       if not TOKEN_GENERATION_AVAILABLE:
@@ -303,28 +331,28 @@ def main():
         try:
           public_key = CONFIG.get("mqtt_public_key")
           private_key_input = CONFIG.get("mqtt_private_key")
-          
+
           # Check if private_key is a file path or hex string
           if len(private_key_input) < 128:
             # Assume it's a file path
             private_key = read_private_key_file(private_key_input)
           else:
             private_key = private_key_input
-          
+
           # Get token expiry (default 1 hour)
           expiry_seconds = CONFIG.get("mqtt_token_expiry_seconds", 3600)
-          
+
           # Get audience from config or use host
           audience = CONFIG.get("mqtt_token_audience", CONFIG.get("mqtt_host"))
           claims = {"aud": audience} if audience else {}
-          
+
           token = create_auth_token(public_key, private_key, expiry_seconds, **claims)
           print(f"Auto-generated auth token (expires in {expiry_seconds}s)")
         except Exception as e:
           print(f"Error generating auth token: {e}")
           print("Warning: mqtt_use_auth_token is true but token generation failed")
           token = None
-    
+
     if token and token != "TODO" and token is not None:
       # For token auth, typically use token as username with empty password
       client.username_pw_set(token, "")
