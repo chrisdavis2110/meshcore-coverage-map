@@ -13,9 +13,11 @@
 
 const geo = require('ngeohash');
 
-// Default URLs
-const DEFAULT_SOURCE = 'https://source.domain.com/get-samples';
-const DEFAULT_DEST = 'http://dest.domain.com/put-sample';
+// Default URLs - MUST be overridden via command line arguments
+// Using placeholder URLs to prevent accidental migrations
+const DEFAULT_SOURCE = 'https://source.example.com/get-samples';
+const DEFAULT_DEST = 'https://dest.example.com/put-sample';
+
 
 // Parse command line arguments
 function parseArgs() {
@@ -23,7 +25,7 @@ function parseArgs() {
   const config = {
     source: DEFAULT_SOURCE,
     dest: DEFAULT_DEST,
-    delay: 0 // milliseconds between requests
+    delay: 100 // milliseconds between requests
   };
   
   for (let i = 0; i < args.length; i++) {
@@ -94,6 +96,14 @@ async function postSample(destUrl, sample) {
     observed: metadata.observed ?? (metadata.path && metadata.path.length > 0)
   };
   
+  // Preserve original time from source if available
+  // Check both metadata.time and flat time field for compatibility
+  if (metadata.time !== undefined && metadata.time !== null) {
+    body.time = metadata.time;
+  } else if (sample.time !== undefined && sample.time !== null) {
+    body.time = sample.time;
+  }
+  
   // Remove null values (optional, but cleaner)
   if (body.snr === null) delete body.snr;
   if (body.rssi === null) delete body.rssi;
@@ -125,6 +135,19 @@ function sleep(ms) {
 
 // Main migration function
 async function migrate(config) {
+  // Validate that URLs are not placeholders
+  if (config.source.includes('example.com') || config.dest.includes('example.com')) {
+    console.error('ERROR: Default placeholder URLs detected!');
+    console.error('You must provide --source and --dest arguments.');
+    console.error('');
+    console.error('Usage:');
+    console.error('  node scripts/migrate-samples.js --source <url> --dest <url>');
+    console.error('');
+    console.error('Example:');
+    console.error('  node scripts/migrate-samples.js --source http://localhost:3000/get-samples --dest https://coverage.stonekitty.net/put-sample');
+    process.exit(1);
+  }
+  
   console.log('Starting sample migration...');
   console.log(`Source: ${config.source}`);
   console.log(`Destination: ${config.dest}`);
