@@ -10,6 +10,8 @@ services:
       POSTGRES_USER: ${DB_USER:-meshmap}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-meshmap}
       POSTGRES_DB: ${DB_NAME:-meshmap}
+    ports:
+      - "${DB_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./server/migrations:/docker-entrypoint-initdb.d:ro

@@ -3,31 +3,62 @@ const router = express.Router();
 const coverageModel = require('../models/coverage');
 const samplesModel = require('../models/samples');
 const repeatersModel = require('../models/repeaters');
-const { truncateTime } = require('../utils/shared');
+const { truncateTime, posFromHash, isValidLocation, centerPos, maxDistanceMiles, haversineMiles } = require('../utils/shared');
 const { buildPrefixLookup, disambiguatePath } = require('../utils/prefix-disambiguation');
 
-// GET /get-nodes
+// GET /get-nodes?region=<region_name>
 router.get('/get-nodes', async (req, res, next) => {
   try {
+    const region = req.query.region || null;
     const [coverage, samples, repeaters] = await Promise.all([
       coverageModel.getAll(),
       samplesModel.getAll(),
-      repeatersModel.getAll()
+      repeatersModel.getAll(region)
     ]);
+     // Filter samples and coverage by geographic location
+    // This prevents showing samples from distant regions (e.g., Africa when viewing USA)
+    const filteredSamples = samples.keys.filter(s => {
+      try {
+        const pos = posFromHash(s.name);
+        const isValid = isValidLocation(pos);
+        if (!isValid && maxDistanceMiles > 0) {
+          const distance = haversineMiles(centerPos, pos);
+          console.log(`Filtered out sample ${s.name} at ${pos[0].toFixed(4)}, ${pos[1].toFixed(4)} (distance: ${distance.toFixed(1)} miles)`);
+        }
+        return isValid;
+      } catch (e) {
+        // If we can't decode the geohash, exclude it
+        console.log(`Failed to decode geohash ${s.name}:`, e.message);
+        return false;
+      }
+    });
+
+    const filteredCoverage = coverage.filter(c => {
+      try {
+        const pos = posFromHash(c.hash);
+        return isValidLocation(pos);
+      } catch (e) {
+        // If we can't decode the geohash, exclude it
+        return false;
+      }
+    });
+
+    if (maxDistanceMiles > 0) {
+      console.log(`Geographic filtering: ${samples.keys.length} -> ${filteredSamples.length} samples, ${coverage.length} -> ${filteredCoverage.length} coverage tiles (center: ${centerPos[0]}, ${centerPos[1]}, max distance: ${maxDistanceMiles} miles)`);
+    }
 
     // Build prefix disambiguation lookup from samples and repeaters
     // This resolves 2-char prefix collisions using position, co-occurrence, geography, and recency
-    const prefixLookup = buildPrefixLookup(samples.keys, repeaters.keys);
+    const prefixLookup = buildPrefixLookup(filteredSamples, repeaters.keys);
 
     // Aggregate samples by 6-character geohash prefix
     const sampleAggregates = new Map(); // geohash prefix -> { total, heard, lastTime, repeaters: Set, snr, rssi }
-
     // Track driver stats (drivers -> { count, heard, lost })
     const wardriveAppDrivers = new Set(); // drivers known to be from wardrive app
     const driverStats = new Map(); // driver name -> { count, heard, lost }
 
     const allDrivers = new Set();
-    samples.keys.forEach(s => {
+    filteredSamples.forEach(s => {
       const drivers = s.metadata.drivers;
 
       // Track all drivers for debugging
@@ -42,7 +73,7 @@ router.get('/get-nodes', async (req, res, next) => {
       }
     });
 
-    samples.keys.forEach(s => {
+    filteredSamples.forEach(s => {
       const prefix = s.name.substring(0, 6); // 6-char geohash prefix
       const rawPath = s.metadata.path || [];
       // Disambiguate path prefixes to resolve collisions
@@ -192,7 +223,7 @@ router.get('/get-nodes', async (req, res, next) => {
       });
 
     const responseData = {
-      coverage: coverage.map(c => {
+      coverage: filteredCoverage.map(c => {
         const lastHeard = c.lastHeard || 0;
         const lastObserved = c.lastObserved || lastHeard;
         const updated = lastObserved || lastHeard;
@@ -207,7 +238,8 @@ router.get('/get-nodes', async (req, res, next) => {
         };
 
         if (c.hitRepeaters && c.hitRepeaters.length > 0) {
-            item.rptr = disambiguatePath(prefixLookup, c.hitRepeaters);;
+          // Disambiguate repeater prefixes in coverage data
+          item.rptr = disambiguatePath(prefixLookup, c.hitRepeaters);
         }
 
         // Include snr/rssi if they exist
@@ -228,6 +260,7 @@ router.get('/get-nodes', async (req, res, next) => {
         lat: r.metadata.lat,
         lon: r.metadata.lon,
         elev: Math.round(r.metadata.elev || 0),
+        region: r.metadata.region || null,
       })),
       drivers: drivers
     };

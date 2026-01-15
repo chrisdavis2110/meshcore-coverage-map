@@ -30,7 +30,7 @@ let idToRepeatersById = null; // Index of 2-char id -> [repeater] for matching c
 let hashToCoverage = null; // Index of geohash -> coverage
 let edgeList = null; // List of connected repeater and coverage
 let individualSamples = null; // Individual (non-aggregated) samples
-let driverFilters = {}; // Driver filter state
+// let driverFilters = {}; // Driver filter state
 
 // Map layers (will be initialized after map is created)
 let coverageLayer = null;
@@ -192,9 +192,13 @@ repeatersControl.onAdd = m => {
   const repeatersButton = div.querySelector("#repeaters-button");
   const repeatersList = div.querySelector("#repeaters-list");
   const repeatersContent = div.querySelector("#repeaters-list-content");
+  // const driversButton = div.querySelector("#drivers-button");
+  // const driversList = div.querySelector("#drivers-list");
+  // const driversContent = div.querySelector("#drivers-list-content");
 
   repeatersButton.addEventListener("click", (e) => {
     e.stopPropagation();
+    // driversList.style.display = "none"; // Close drivers list
     if (repeatersList.style.display === "none") {
       updateRepeatersList(repeatersContent);
       repeatersList.style.display = "block";
@@ -203,9 +207,87 @@ repeatersControl.onAdd = m => {
     }
   });
 
+  // driversButton.addEventListener("click", (e) => {
+  //   e.stopPropagation();
+  //   repeatersList.style.display = "none"; // Close repeaters list
+  //   if (driversList.style.display === "none") {
+  //     updateDriversList(driversContent);
+  //     driversList.style.display = "block";
+  //   } else {
+  //     driversList.style.display = "none";
+  //   }
+  // });
+
+  // // Filter button handlers
+  // const driversFilterBtn = div.querySelector("#drivers-filter-btn");
+  // const driversFilterPanel = div.querySelector("#drivers-filter-panel");
+  // const driversFilterApply = div.querySelector("#drivers-filter-apply");
+  // const driversFilterClear = div.querySelector("#drivers-filter-clear");
+
+  // if (driversFilterBtn) {
+  //   driversFilterBtn.addEventListener("click", (e) => {
+  //     e.stopPropagation();
+  //     const isVisible = driversFilterPanel.style.display !== "none";
+  //     driversFilterPanel.style.display = isVisible ? "none" : "block";
+  //   });
+  // }
+
+  // if (driversFilterApply) {
+  //   driversFilterApply.addEventListener("click", async (e) => {
+  //     e.stopPropagation();
+  //     // Collect filter values
+  //     driverFilters = {
+  //       minCount: document.getElementById("filter-min-count")?.value || null,
+  //       maxCount: document.getElementById("filter-max-count")?.value || null,
+  //       minHeard: document.getElementById("filter-min-heard")?.value || null,
+  //       maxHeard: document.getElementById("filter-max-heard")?.value || null,
+  //       minLost: document.getElementById("filter-min-lost")?.value || null,
+  //       maxLost: document.getElementById("filter-max-lost")?.value || null,
+  //       minPercent: document.getElementById("filter-min-percent")?.value || null,
+  //       maxPercent: document.getElementById("filter-max-percent")?.value || null,
+  //       sortBy: document.getElementById("filter-sort-by")?.value || "count",
+  //       sortOrder: document.getElementById("filter-sort-order")?.value || "desc"
+  //     };
+
+  //     // Remove null/empty values
+  //     Object.keys(driverFilters).forEach(key => {
+  //       if (driverFilters[key] === null || driverFilters[key] === "") {
+  //         delete driverFilters[key];
+  //       }
+  //     });
+
+  //     // Refresh data with filters
+  //     await refreshCoverage();
+  //     updateDriversList(driversContent);
+  //   });
+  // }
+
+  // if (driversFilterClear) {
+  //   driversFilterClear.addEventListener("click", async (e) => {
+  //     e.stopPropagation();
+  //     // Clear all filter inputs
+  //     const inputs = ["filter-min-count", "filter-max-count", "filter-min-heard", "filter-max-heard",
+  //                    "filter-min-lost", "filter-max-lost", "filter-min-percent", "filter-max-percent"];
+  //     inputs.forEach(id => {
+  //       const el = document.getElementById(id);
+  //       if (el) el.value = "";
+  //     });
+  //     const sortBy = document.getElementById("filter-sort-by");
+  //     const sortOrder = document.getElementById("filter-sort-order");
+  //     if (sortBy) sortBy.value = "count";
+  //     if (sortOrder) sortOrder.value = "desc";
+
+  //     // Clear filter state and refresh
+  //     driverFilters = {};
+  //     await refreshCoverage();
+  //     updateDriversList(driversContent);
+  //   });
+  // }
+
   // Close when clicking outside (use the map parameter 'm' passed to onAdd)
   const closeHandler = () => {
     repeatersList.style.display = "none";
+    // driversList.style.display = "none";
   };
   m.on("click", closeHandler);
 
@@ -213,6 +295,9 @@ repeatersControl.onAdd = m => {
   repeatersList.addEventListener("click", (e) => {
     e.stopPropagation();
   });
+  // driversList.addEventListener("click", (e) => {
+  //   e.stopPropagation();
+  // });
 
   L.DomEvent.disableClickPropagation(div);
   L.DomEvent.disableScrollPropagation(div);
@@ -223,10 +308,10 @@ repeatersControl.onAdd = m => {
 async function initMap() {
   // Load config from server
   await loadConfig();
-  
+
   // Initialize map with configured center position and initial zoom
   map = L.map('map', { worldCopyJump: true }).setView(centerPos, initialZoom);
-  
+
   // Create and add tile layer
   osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
@@ -238,10 +323,10 @@ async function initMap() {
   edgeLayer = L.layerGroup().addTo(map);
   sampleLayer = L.layerGroup().addTo(map);
   repeaterLayer = L.layerGroup().addTo(map);
-  
+
   // Initialize SVG patterns for pattern palette
   initSVGPatterns();
-  
+
   // Add controls
   mapControl.addTo(map);
   repeatersControl.addTo(map);
@@ -292,26 +377,26 @@ function initSVGPatterns() {
     setTimeout(() => {
       const mapContainer = map.getContainer();
       let svg = mapContainer.querySelector('svg.leaflet-zoom-animated');
-      
+
       if (!svg) {
         // Try again after a longer delay
         setTimeout(initSVGPatterns, 200);
         return;
       }
-      
+
       let svgDefs = svg.querySelector('defs');
-      
+
       // Create defs if it doesn't exist
       if (!svgDefs) {
         svgDefs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
         svg.insertBefore(svgDefs, svg.firstChild);
       }
-      
+
       // Check if patterns already exist
       if (svgDefs.querySelector('#pattern-sparse-lines')) {
         return; // Patterns already initialized
       }
-    
+
     // Sparse horizontal lines pattern (0%) - screen-door effect
     const sparseLines = document.createElementNS('http://www.w3.org/2000/svg', 'pattern');
     sparseLines.setAttribute('id', 'pattern-sparse-lines');
@@ -327,7 +412,7 @@ function initSVGPatterns() {
     sparseLine.setAttribute('stroke-width', '1');
     sparseLines.appendChild(sparseLine);
     svgDefs.appendChild(sparseLines);
-    
+
     // Medium horizontal lines pattern (>0%)
     const mediumLines = document.createElementNS('http://www.w3.org/2000/svg', 'pattern');
     mediumLines.setAttribute('id', 'pattern-medium-lines');
@@ -351,7 +436,7 @@ function initSVGPatterns() {
     mediumLines.appendChild(mediumLine1);
     mediumLines.appendChild(mediumLine2);
     svgDefs.appendChild(mediumLines);
-    
+
     // Dense horizontal lines pattern (>25%)
     const denseLines = document.createElementNS('http://www.w3.org/2000/svg', 'pattern');
     denseLines.setAttribute('id', 'pattern-dense-lines');
@@ -375,7 +460,7 @@ function initSVGPatterns() {
     denseLines.appendChild(denseLine1);
     denseLines.appendChild(denseLine2);
     svgDefs.appendChild(denseLines);
-    
+
     // Very dense horizontal lines pattern (>40%)
     const veryDenseLines = document.createElementNS('http://www.w3.org/2000/svg', 'pattern');
     veryDenseLines.setAttribute('id', 'pattern-very-dense-lines');
@@ -399,7 +484,7 @@ function initSVGPatterns() {
     veryDenseLines.appendChild(veryDenseLine1);
     veryDenseLines.appendChild(veryDenseLine2);
     svgDefs.appendChild(veryDenseLines);
-    
+
     // Solid pattern (>70%) - very dense lines that appear almost solid
     const solid = document.createElementNS('http://www.w3.org/2000/svg', 'pattern');
     solid.setAttribute('id', 'pattern-solid');
@@ -440,7 +525,7 @@ function rgbToHex(r, g, b) {
 // 0=red, >0=red, >25%=orange, >40%=yellow, >70%=light green, >70%=dark green
 function paletteRedYellowGreen(rate) {
   const clampedRate = Math.max(0, Math.min(1, rate));
-  
+
   if (clampedRate === 0) {
     return '#FF0000'; // Red
   } else if (clampedRate <= 0.25) {
@@ -460,7 +545,7 @@ function paletteRedYellowGreen(rate) {
 // 0=very light blue, >0=light blue, >25%=medium blue, >40%=blue, >70%=dark blue, >85%=very dark blue
 function paletteBlue(rate) {
   const clampedRate = Math.max(0, Math.min(1, rate));
-  
+
   if (clampedRate === 0) {
     return '#E6F3FF'; // Very light blue
   } else if (clampedRate <= 0.25) {
@@ -480,7 +565,7 @@ function paletteBlue(rate) {
 // Returns an object with fillColor, fillPattern, and patternId
 function palettePatterns(rate) {
   const clampedRate = Math.max(0, Math.min(1, rate));
-  
+
   let patternId;
   if (clampedRate === 0) {
     patternId = 'pattern-sparse-lines';
@@ -493,7 +578,7 @@ function palettePatterns(rate) {
   } else {
     patternId = 'pattern-solid';
   }
-  
+
   return {
     fillColor: '#E0E0E0', // Light grey base (will be overlaid with black patterns)
     fillPattern: patternId,
@@ -505,7 +590,7 @@ function palettePatterns(rate) {
 // <25% = empty gray box (with gray border), <50% = light green, <100% = dark green
 function paletteSimpleGreen(rate) {
   const clampedRate = Math.max(0, Math.min(1, rate));
-  
+
   if (clampedRate < 0.25) {
     return {
       fillColor: '#F5F5F5', // Very light gray (appears empty)
@@ -533,7 +618,7 @@ function paletteSimpleGreen(rate) {
 // Main function to get color/style based on selected palette
 function successRateToColor(rate) {
   const clampedRate = Math.max(0, Math.min(1, rate));
-  
+
   if (colorPalette === 'red-yellow-green') {
     return paletteRedYellowGreen(clampedRate);
   } else if (colorPalette === 'blue') {
@@ -546,7 +631,7 @@ function successRateToColor(rate) {
     // For empty boxes (hasBorder: true), return gray for circle markers
     return simple.hasBorder ? '#808080' : simple.fillColor;
   }
-  
+
   // Fallback to red-yellow-green
   return paletteRedYellowGreen(clampedRate);
 }
@@ -670,7 +755,7 @@ function updateGlobalSampleStats() {
 // Get style object for patterns (used by rectangles)
 function successRateToStyle(rate) {
   const clampedRate = Math.max(0, Math.min(1, rate));
-  
+
   if (colorPalette === 'patterns') {
     const pattern = palettePatterns(clampedRate);
     return {
@@ -687,7 +772,7 @@ function successRateToStyle(rate) {
       hasBorder: simple.hasBorder
     };
   }
-  
+
   // For color palettes, return just the color
   return {
     fillColor: successRateToColor(clampedRate)
@@ -696,40 +781,40 @@ function successRateToStyle(rate) {
 
 function coverageMarker(coverage) {
   const [minLat, minLon, maxLat, maxLon] = geo.decode_bbox(coverage.id);
-  
+
   // Get value for current query mode
   let queryValue = getQueryValue(coverage);
-  
+
   // For past-day, filter out if value is 0
   if (queryMode === 'past-day' && queryValue === 0) {
     return null; // Don't render this marker
   }
-  
+
   // Get style based on palette
   const styleInfo = successRateToStyle(queryValue);
   const color = successRateToColor(queryValue);
   const date = new Date(fromTruncatedTime(coverage.time || 0));
-  
+
   const totalSamples = coverage.rcv + coverage.lost;
   const heardRatio = totalSamples > 0 ? coverage.rcv / totalSamples : 0;
-  
+
   // Ensure tiles with only lost samples are visible
   // Base opacity on total samples, but ensure minimum visibility for lost-only tiles
   const baseOpacity = 0.75 * sigmoid(totalSamples, 1.2, 2);
   // For query modes, use queryValue for opacity; for others, use heardRatio
-  const opacityValue = (queryMode === 'past-day' || queryMode === 'last-updated') 
-    ? queryValue 
+  const opacityValue = (queryMode === 'past-day' || queryMode === 'last-updated')
+    ? queryValue
     : (heardRatio > 0 ? baseOpacity * heardRatio : Math.max(baseOpacity, 0.4));
-  
+
   const style = {
     color: styleInfo.borderColor || color,
     weight: styleInfo.hasBorder ? 2 : 1, // Thicker border for empty boxes
     fillColor: styleInfo.fillColor || color,
     fillOpacity: styleInfo.fillOpacity !== undefined ? styleInfo.fillOpacity : Math.max(opacityValue, 0.2), // Use palette opacity or minimum 20% opacity
   };
-  
+
   const rect = L.rectangle([[minLat, minLon], [maxLat, maxLon]], style);
-  
+
   // Apply pattern if using patterns palette
   if (colorPalette === 'patterns' && styleInfo.patternUrl) {
     rect.on('add', function() {
@@ -761,6 +846,8 @@ function coverageMarker(coverage) {
   }
 
   rect.coverage = coverage;
+  // Store region on marker for edge visibility filtering
+  rect.region = coverage.region || null;
   rect.bindPopup(details, { maxWidth: 320 });
   rect.on('popupopen', e => updateAllEdgeVisibility(e.target.coverage));
   rect.on('popupclose', () => updateAllEdgeVisibility());
@@ -927,6 +1014,8 @@ function repeaterMarker(r) {
   const marker = L.marker([r.lat, r.lon], { icon: icon });
 
   marker.repeater = r;
+  // Store region on marker for edge visibility filtering
+  marker.region = r.region || null;
   marker.bindPopup(details, { maxWidth: 320 });
   marker.on('add', () => updateRepeaterMarkerVisibility(marker));
   marker.on('popupopen', e => updateAllEdgeVisibility(e.target.repeater));
@@ -940,6 +1029,58 @@ function repeaterMarker(r) {
   r.marker = marker;
   return marker;
 }
+
+/**
+ * Find the repeater with the geohash closest to the coverage tile's geohash.
+ * Uses longest common prefix as the primary metric, with distance as tiebreaker.
+ */
+function getBestRepeaterByGeohash(coverageGeohash, repeaterList) {
+  if (repeaterList.length === 1) {
+    return repeaterList[0];
+  }
+
+  let bestRepeater = null;
+  let maxCommonPrefix = -1;
+  let minDistance = Infinity;
+
+  repeaterList.forEach(r => {
+    // Get repeater's geohash (6-char to match coverage tile precision)
+    const repeaterGeohash = r.geohash || geo.encode(r.lat, r.lon, 6);
+
+    // Calculate longest common prefix length
+    let commonPrefix = 0;
+    const minLen = Math.min(coverageGeohash.length, repeaterGeohash.length);
+    for (let i = 0; i < minLen; i++) {
+      if (coverageGeohash[i] === repeaterGeohash[i]) {
+        commonPrefix++;
+      } else {
+        break;
+      }
+    }
+
+    // Calculate actual distance as tiebreaker
+    // Decode coverage geohash to get lat/lon (geo.decode returns {latitude, longitude})
+    const coveragePos = geo.decode(coverageGeohash);
+    const distance = haversineMiles(
+      [r.lat, r.lon],
+      [coveragePos.latitude, coveragePos.longitude]
+    );
+
+    // Prefer longer common prefix, or if equal, prefer shorter distance
+    if (commonPrefix > maxCommonPrefix ||
+        (commonPrefix === maxCommonPrefix && distance < minDistance)) {
+      maxCommonPrefix = commonPrefix;
+      minDistance = distance;
+      bestRepeater = r;
+    }
+  });
+
+  return bestRepeater;
+}
+
+/**
+ * Fallback function using distance (for backward compatibility or when geohash not available)
+ */
 
 function getBestRepeater(fromPos, repeaterList) {
   if (repeaterList.length === 1) {
@@ -1031,9 +1172,88 @@ function updateAllEdgeVisibility(end) {
     let shouldShow = false;
     if (end !== undefined) {
       // e.ends is [repeater, coverage]
-      markersToOverride.push(e.ends[0].marker);
-      coverageToHighlight.push(e.ends[1].marker);
-      e.setStyle({ opacity: 0.6, color: '#1e40af' }); // Darker blue when visible
+      // Check if end matches either the repeater or coverage
+      // Use object reference first (most reliable), then pubkey (unique), then ID+location
+
+      // Get the region of the hovered element
+      // end can be: repeater object, coverage object, or marker
+      let endRegion = null;
+      if (end.region !== undefined && end.region !== null) {
+        // Direct region property (on repeater/coverage object or marker)
+        endRegion = end.region;
+      } else if (end.repeater && end.repeater.region) {
+        // Marker with repeater property
+        endRegion = end.repeater.region;
+      } else if (end.coverage && end.coverage.region) {
+        // Marker with coverage property
+        endRegion = end.coverage.region;
+      } else if (end.marker) {
+        // Object with marker property
+        endRegion = end.marker.region;
+      }
+
+      // Get the edge's repeater and coverage regions
+      const edgeRepeater = e.ends[0];
+      const edgeCoverage = e.ends[1];
+      const edgeRepeaterRegion = edgeRepeater.marker?.region || edgeRepeater.region || null;
+      const edgeCoverageRegion = edgeCoverage.marker?.region || edgeCoverage.region || null;
+
+      // Check if it's a repeater (has id, lat, and lon as separate properties)
+      // Repeaters have lat/lon as separate properties, coverage only has pos array
+      if (end.id !== undefined && end.lat !== undefined && end.lon !== undefined) {
+        // end is a repeater
+        // First try object reference (most reliable - each repeater object is unique)
+        if (edgeRepeater === end) {
+          shouldShow = true;
+        } else if (edgeRepeater.pubkey && end.pubkey) {
+          // If both have pubkeys, compare by pubkey (should be unique)
+          shouldShow = edgeRepeater.pubkey.toLowerCase() === end.pubkey.toLowerCase();
+        } else {
+          // Fallback: compare by ID AND location (to handle same ID in different regions)
+          const idMatch = edgeRepeater.id && end.id &&
+                         edgeRepeater.id.toLowerCase() === end.id.toLowerCase();
+          const locationMatch = edgeRepeater.lat === end.lat && edgeRepeater.lon === end.lon;
+          shouldShow = idMatch && locationMatch;
+        }
+
+        // If we have regions, only show edges where both repeater and coverage match the region
+        if (shouldShow && endRegion !== null) {
+          const regionMatch = (edgeRepeaterRegion === endRegion || edgeRepeaterRegion === null) &&
+                             (edgeCoverageRegion === endRegion || edgeCoverageRegion === null);
+          shouldShow = shouldShow && regionMatch;
+        }
+      } else if (end.id !== undefined && Array.isArray(end.pos) && end.lat === undefined) {
+        // end is a coverage - compare by geohash ID
+        // Also check object reference as fallback
+        shouldShow = e.ends[1].id === end.id || e.ends[1] === end;
+
+        // If we have regions, only show edges where both repeater and coverage match the region
+        if (shouldShow && endRegion !== null) {
+          const regionMatch = (edgeRepeaterRegion === endRegion || edgeRepeaterRegion === null) &&
+                             (edgeCoverageRegion === endRegion || edgeCoverageRegion === null);
+          shouldShow = shouldShow && regionMatch;
+        }
+      } else {
+        // Fallback to object reference comparison
+        shouldShow = e.ends.includes(end);
+
+        // If we have regions, only show edges where both repeater and coverage match the region
+        if (shouldShow && endRegion !== null) {
+          const regionMatch = (edgeRepeaterRegion === endRegion || edgeRepeaterRegion === null) &&
+                             (edgeCoverageRegion === endRegion || edgeCoverageRegion === null);
+          shouldShow = shouldShow && regionMatch;
+        }
+      }
+    }
+
+    if (shouldShow) {
+      if (e.ends[0].marker) {
+        markersToOverride.push(e.ends[0].marker);
+      }
+      if (e.ends[1].marker) {
+        coverageToHighlight.push(e.ends[1].marker);
+      }
+      e.setStyle({ opacity: 0.6 });
     } else {
       e.setStyle({ opacity: 0 });
     }
@@ -1073,11 +1293,40 @@ function renderNodes(nodes) {
   if (showSamples && individualSamples) {
     // Show individual samples
     individualSamples.keys.forEach(s => {
+      const [lat, lon] = posFromHash(s.name);
+      const samplePos = [lat, lon];
+      // Always filter by distance (use default if maxDistanceMiles is 0)
+      // Default to 2500 miles if not configured (reasonable default for USA)
+      const maxDistance = maxDistanceMiles > 0 ? maxDistanceMiles : 2500;
+      const distance = haversineMiles(centerPos, samplePos);
+      if (distance > maxDistance) {
+        return; // Skip samples outside the mileage range
+      }
+      // Only show samples that have a corresponding coverage tile
+      // Individual samples use 8-char geohash, coverage uses 6-char geohash
+      const coverageKey = s.name.substring(0, 6);
+      if (!hashToCoverage || !hashToCoverage.has(coverageKey)) {
+        return; // Skip samples without a coverage tile
+      }
       sampleLayer.addLayer(individualSampleMarker(s));
     });
   } else {
     // Show aggregated samples
     nodes.samples.forEach(s => {
+      const [lat, lon] = posFromHash(s.id);
+      const samplePos = [lat, lon];
+      // Always filter by distance (use default if maxDistanceMiles is 0)
+      // Default to 2500 miles if not configured (reasonable default for USA)
+      const maxDistance = maxDistanceMiles > 0 ? maxDistanceMiles : 2500;
+      const distance = haversineMiles(centerPos, samplePos);
+      if (distance > maxDistance) {
+        return; // Skip samples outside the mileage range
+      }
+      // Only show samples that have a corresponding coverage tile
+      // Aggregated samples use 6-char geohash (same as coverage)
+      if (!hashToCoverage || !hashToCoverage.has(s.id)) {
+        return; // Skip samples without a coverage tile
+      }
       sampleLayer.addLayer(sampleMarker(s));
     });
   }
@@ -1110,6 +1359,9 @@ function renderNodes(nodes) {
     };
     const line = L.polyline([e.repeater.pos, e.coverage.pos], style);
     line.ends = [e.repeater, e.coverage];
+    // Store regions on the line for edge visibility filtering
+    line.repeaterRegion = e.repeater.region || null;
+    line.coverageRegion = e.coverage.region || null;
     line.addTo(edgeLayer);
   });
 }
@@ -1221,6 +1473,9 @@ function buildIndexes(nodes) {
     // Normalize pubkey if available
     r.pubkey = r.pubkey ? r.pubkey.toLowerCase() : null;
 
+    // Compute repeater's geohash (6-char to match coverage tile precision)
+    r.geohash = geo.encode(r.lat, r.lon, 6);
+
     // Use full public key as primary key if available, otherwise fall back to ID
     // This ensures edges are unique per pubkey
     const key = r.pubkey || normalizedId;
@@ -1231,15 +1486,70 @@ function buildIndexes(nodes) {
   });
 
   // Build connections.
+  // coverage.rptr contains 2-char IDs, but we want to use full pubkeys for edges
   hashToCoverage.entries().forEach(([key, coverage]) => {
+    // coverage.id is the 6-char geohash of the coverage tile
+    const coverageGeohash = key; // This is already the 6-char geohash
+
     coverage.rptr.forEach(rId => {
       // Look up by 2-char ID first (coverage.rptr only has IDs)
       const candidateRepeaters = idToRepeatersById.get(rId);
       if (candidateRepeaters === undefined)
         return;
 
-      const bestRepeater = getBestRepeater(coverage.pos, candidateRepeaters);
+      // Strategy: Use geohash-based matching to find the closest repeater
+      // 1. Filter by region if we can infer the coverage tile's region
+      // 2. Among remaining candidates, find the one with geohash closest to coverage tile's geohash
+      // 3. This naturally handles geographic proximity and prevents cross-region conflicts
+
+      let finalCandidates = candidateRepeaters;
+
+      // Step 1: Infer the coverage tile's region from nearby repeaters (if available)
+      // This helps filter out cross-region conflicts
+      const nearbyRepeaters = Array.from(idToRepeaters.values()).flat().filter(r => {
+        const dist = haversineMiles(coverage.pos, r.pos);
+        return dist < 50 && r.region; // Within 50 miles and has a region
+      });
+
+      // Find the most common region among nearby repeaters
+      const nearbyRegionCounts = new Map();
+      nearbyRepeaters.forEach(r => {
+        const count = nearbyRegionCounts.get(r.region) || 0;
+        nearbyRegionCounts.set(r.region, count + 1);
+      });
+
+      let inferredRegion = null;
+      let maxCount = 0;
+      nearbyRegionCounts.forEach((count, region) => {
+        if (count > maxCount) {
+          maxCount = count;
+          inferredRegion = region;
+        }
+      });
+
+        // Step 2: Filter by region if we inferred one (prevents cross-region conflicts)
+      if (inferredRegion && finalCandidates.length > 1) {
+        // Filter out repeaters that have a different region than inferred
+        // Only keep: (1) repeaters with matching region, or (2) repeaters with no region
+        const regionFiltered = finalCandidates.filter(r => {
+          return !r.region || r.region === inferredRegion;
+        });
+
+        if (regionFiltered.length > 0) {
+          finalCandidates = regionFiltered;
+        }
+      }
+
+      // Step 3: Use geohash-based matching to find the closest repeater
+      // This uses longest common prefix of geohashes, with distance as tiebreaker
+      const bestRepeater = getBestRepeaterByGeohash(coverageGeohash, finalCandidates);
       bestRepeater.hitBy.push(coverage);
+
+      // Store the inferred region on the coverage object (for edge visibility filtering)
+      // Use the best repeater's region if available, otherwise use the inferred region
+      if (!coverage.region) {
+        coverage.region = bestRepeater.region || inferredRegion || null;
+      }
 
       // Use pubkey (or id) as the edge key for uniqueness
       const edgeKey = bestRepeater.pubkey || bestRepeater.id;
@@ -1320,6 +1630,56 @@ function updateRepeatersList(contentDiv) {
   contentDiv.innerHTML = html;
 }
 
+// // Update drivers list content
+// function updateDriversList(contentDiv) {
+//   if (!nodes || !nodes.drivers) {
+//     contentDiv.innerHTML = '<div style="padding: 20px; color: #e2e8f0; text-align: center;">No driver data available.<br/>Please refresh the map first.</div>';
+//     return;
+//   }
+
+//   const drivers = nodes.drivers || [];
+
+//   if (drivers.length === 0) {
+//     contentDiv.innerHTML = `<div style="padding: 20px; color: #e2e8f0; text-align: center;">
+//       No drivers found.<br/><br/>
+//       <div style="font-size: 11px; color: #9ca3af; margin-top: 8px;">
+//         Drivers are tracked from wardrive app users.
+//       </div>
+//     </div>`;
+//     return;
+//   }
+
+//   // Create simple concise list
+//   let html = '<div style="padding: 8px;">';
+
+//   drivers.forEach((driver) => {
+//     const heardPercent = driver.heardPercent ?? (driver.count > 0 ? ((driver.heard || 0) / driver.count * 100) : 0);
+//     const heard = driver.heard || 0;
+//     const lost = driver.lost || 0;
+//     const total = driver.count;
+//     const percentText = `${Math.round(heardPercent * 10) / 10}%`;
+
+//     // Color based on success rate (green for high, red for low)
+//     const color = heardPercent >= 75 ? '#34d399' : heardPercent >= 50 ? '#fbbf24' : '#f87171';
+
+//     html += `<div style="padding: 8px 12px; color: #e2e8f0; border-bottom: 1px solid #4a5568; font-size: 13px;">
+//       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+//         <div style="display: flex; gap: 12px; align-items: center;">
+//           <span style="font-weight: 500;">${escapeHtml(driver.name)}</span>
+//         </div>
+//         <span style="color: #34d399; font-weight: 600; font-size: 13px;">${total}</span>
+//       </div>
+//       <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: #9ca3af;">
+//         <span>${heard} heard, ${lost} missed</span>
+//         <span style="color: ${color}; font-weight: 600;">${percentText}</span>
+//       </div>
+//     </div>`;
+//   });
+
+//   html += '</div>';
+//   contentDiv.innerHTML = html;
+// }
+
 async function loadIndividualSamples() {
   try {
     const endpoint = "/get-samples";
@@ -1333,6 +1693,21 @@ async function loadIndividualSamples() {
     // Clear sample layer and render with individual samples
     sampleLayer.clearLayers();
     individualSamples.keys.forEach(s => {
+      const [lat, lon] = posFromHash(s.name);
+      const samplePos = [lat, lon];
+      // Always filter by distance (use default if maxDistanceMiles is 0)
+      // Default to 2500 miles if not configured (reasonable default for USA)
+      const maxDistance = maxDistanceMiles > 0 ? maxDistanceMiles : 2500;
+      const distance = haversineMiles(centerPos, samplePos);
+      if (distance > maxDistance) {
+        return; // Skip samples outside the mileage range
+      }
+      // Only show samples that have a corresponding coverage tile
+      // Individual samples use 8-char geohash, coverage uses 6-char geohash
+      const coverageKey = s.name.substring(0, 6);
+      if (!hashToCoverage || !hashToCoverage.has(coverageKey)) {
+        return; // Skip samples without a coverage tile
+      }
       sampleLayer.addLayer(individualSampleMarker(s));
     });
   } catch (error) {
@@ -1348,7 +1723,20 @@ function clearIndividualSamples() {
 
 export async function refreshCoverage() {
   const endpoint = "/get-nodes";
-  const resp = await fetch(endpoint, { headers: { 'Accept': 'application/json' } });
+
+  // // Build query string from driver filters
+  // const params = new URLSearchParams();
+  // if (driverFilters && Object.keys(driverFilters).length > 0) {
+  //   Object.keys(driverFilters).forEach(key => {
+  //     if (driverFilters[key] !== null && driverFilters[key] !== "") {
+  //       params.append(key, driverFilters[key]);
+  //     }
+  //   });
+  // }
+
+  // const url = params.toString() ? `${endpoint}?${params.toString()}` : endpoint;
+  const url = endpoint;
+  const resp = await fetch(url, { headers: { 'Accept': 'application/json' } });
 
   if (!resp.ok)
     throw new Error(`HTTP ${resp.status} ${resp.statusText}`);
@@ -1356,4 +1744,11 @@ export async function refreshCoverage() {
   nodes = await resp.json();
   buildIndexes(nodes);
   renderNodes(nodes);
+
+  // // Update drivers list if it's open
+  // const driversList = document.getElementById("drivers-list");
+  // const driversContent = document.getElementById("drivers-list-content");
+  // if (driversList && driversContent && driversList.style.display !== "none") {
+  //   updateDriversList(driversContent);
+  // }
 }

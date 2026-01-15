@@ -1,14 +1,13 @@
 services:
   db:
     image: postgres:15-alpine
-    container_name: ${INSTANCE_NAME:-default}-meshmap-db-prod
-    # Load DB credentials from server/.env file
-    # Note: Use ./docker-compose.sh to run commands (it loads server/.env for variable substitution)
+    container_name: ${INSTANCE_NAME:-default}-meshmap-db
+    # Load DB credentials from .env file
     env_file:
       - server/.env
     environment:
       POSTGRES_USER: ${DB_USER:-meshmap}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-meshmap_prod}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-meshmap}
       POSTGRES_DB: ${DB_NAME:-meshmap}
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -26,7 +25,7 @@ services:
     build:
       context: server
       dockerfile: Dockerfile
-    container_name: ${INSTANCE_NAME:-default}-meshmap-app-prod
+    container_name: ${INSTANCE_NAME:-default}-meshmap-app
     # Load environment variables from .env file
     env_file:
       - server/.env
@@ -37,6 +36,11 @@ services:
       # All other config comes from server/.env file
     ports:
       - "${HTTP_PORT:-3000}:3000"
+      - "${HTTPS_PORT:-3443}:3443"
+    volumes:
+      - ./server:/app
+      - /app/node_modules
+      - ./server/ssl:/app/ssl:ro
     depends_on:
       db:
         condition: service_healthy
@@ -48,7 +52,7 @@ services:
     build:
       context: mqtt-scraper
       dockerfile: Dockerfile
-    container_name: ${INSTANCE_NAME:-default}-meshmap-mqtt-scraper-prod
+    container_name: ${INSTANCE_NAME:-default}-meshmap-mqtt-scraper
     volumes:
       - ./mqtt-scraper/config.json:/app/config.json:ro
     depends_on:
@@ -69,4 +73,3 @@ volumes:
 networks:
   meshmap-network:
     driver: bridge
-

@@ -1,0 +1,197 @@
+129:<button id="drivers-button" style="
+      background: #4a5568;
+      color: white;
+      border: 1px solid #718096;
+      border-radius: 4px;
+      padding: 8px 12px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+      white-space: nowrap;
+      width: 100%;
+    ">Top Drivers</button>
+
+146: <div id="drivers-list" style="
+      display: none;
+      margin-top: 4px;
+      background: #2d3748;
+      border: 1px solid #4a5568;
+      border-radius: 4px;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+      width: 100%;
+      max-width: 400px;
+      max-height: 500px;
+      overflow-y: auto;
+    ">
+      <div style="padding: 12px; background: #1a202c; border-bottom: 1px solid #4a5568; font-weight: 600; color: #e2e8f0; position: sticky; top: 0; display: flex; justify-content: space-between; align-items: center;">
+        <span>Drivers by Samples</span>
+        <button id="drivers-filter-btn" style="
+          background: #4a5568;
+          color: white;
+          border: 1px solid #718096;
+          border-radius: 4px;
+          padding: 4px 8px;
+          cursor: pointer;
+          font-size: 12px;
+          font-weight: 500;
+        ">Filter</button>
+      </div>
+      <div id="drivers-filter-panel" style="
+        display: none;
+        padding: 12px;
+        background: #1a202c;
+        border-bottom: 1px solid #4a5568;
+      ">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;">
+          <div>
+            <label style="display: block; font-size: 11px; color: #9ca3af; margin-bottom: 4px;">Min Samples</label>
+            <input type="number" id="filter-min-count" placeholder="0" style="
+              width: 100%;
+              padding: 4px 6px;
+              background: #2d3748;
+              border: 1px solid #4a5568;
+              border-radius: 4px;
+              color: #e2e8f0;
+              font-size: 12px;
+            ">
+          </div>
+          <div>
+            <label style="display: block; font-size: 11px; color: #9ca3af; margin-bottom: 4px;">Max Samples</label>
+            <input type="number" id="filter-max-count" placeholder="∞" style="
+              width: 100%;
+              padding: 4px 6px;
+              background: #2d3748;
+              border: 1px solid #4a5568;
+              border-radius: 4px;
+              color: #e2e8f0;
+              font-size: 12px;
+            ">
+          </div>
+          <div>
+            <label style="display: block; font-size: 11px; color: #9ca3af; margin-bottom: 4px;">Min Hits</label>
+            <input type="number" id="filter-min-heard" placeholder="0" style="
+              width: 100%;
+              padding: 4px 6px;
+              background: #2d3748;
+              border: 1px solid #4a5568;
+              border-radius: 4px;
+              color: #e2e8f0;
+              font-size: 12px;
+            ">
+          </div>
+          <div>
+            <label style="display: block; font-size: 11px; color: #9ca3af; margin-bottom: 4px;">Max Hits</label>
+            <input type="number" id="filter-max-heard" placeholder="∞" style="
+              width: 100%;
+              padding: 4px 6px;
+              background: #2d3748;
+              border: 1px solid #4a5568;
+              border-radius: 4px;
+              color: #e2e8f0;
+              font-size: 12px;
+            ">
+          </div>
+          <div>
+            <label style="display: block; font-size: 11px; color: #9ca3af; margin-bottom: 4px;">Min Misses</label>
+            <input type="number" id="filter-min-lost" placeholder="0" style="
+              width: 100%;
+              padding: 4px 6px;
+              background: #2d3748;
+              border: 1px solid #4a5568;
+              border-radius: 4px;
+              color: #e2e8f0;
+              font-size: 12px;
+            ">
+          </div>
+          <div>
+            <label style="display: block; font-size: 11px; color: #9ca3af; margin-bottom: 4px;">Max Misses</label>
+            <input type="number" id="filter-max-lost" placeholder="∞" style="
+              width: 100%;
+              padding: 4px 6px;
+              background: #2d3748;
+              border: 1px solid #4a5568;
+              border-radius: 4px;
+              color: #e2e8f0;
+              font-size: 12px;
+            ">
+          </div>
+          <div>
+            <label style="display: block; font-size: 11px; color: #9ca3af; margin-bottom: 4px;">Min %</label>
+            <input type="number" id="filter-min-percent" placeholder="0" min="0" max="100" step="0.1" style="
+              width: 100%;
+              padding: 4px 6px;
+              background: #2d3748;
+              border: 1px solid #4a5568;
+              border-radius: 4px;
+              color: #e2e8f0;
+              font-size: 12px;
+            ">
+          </div>
+          <div>
+            <label style="display: block; font-size: 11px; color: #9ca3af; margin-bottom: 4px;">Max %</label>
+            <input type="number" id="filter-max-percent" placeholder="100" min="0" max="100" step="0.1" style="
+              width: 100%;
+              padding: 4px 6px;
+              background: #2d3748;
+              border: 1px solid #4a5568;
+              border-radius: 4px;
+              color: #e2e8f0;
+              font-size: 12px;
+            ">
+          </div>
+        </div>
+        <div style="display: flex; gap: 8px; margin-top: 8px;">
+          <select id="filter-sort-by" style="
+            flex: 1;
+            padding: 4px 6px;
+            background: #2d3748;
+            border: 1px solid #4a5568;
+            border-radius: 4px;
+            color: #e2e8f0;
+            font-size: 12px;
+          ">
+            <option value="count">Sort by Count</option>
+            <option value="heard">Sort by Hits</option>
+            <option value="lost">Sort by Misses</option>
+            <option value="percent">Sort by %</option>
+          </select>
+          <select id="filter-sort-order" style="
+            padding: 4px 6px;
+            background: #2d3748;
+            border: 1px solid #4a5568;
+            border-radius: 4px;
+            color: #e2e8f0;
+            font-size: 12px;
+          ">
+            <option value="desc">Desc</option>
+            <option value="asc">Asc</option>
+          </select>
+        </div>
+        <div style="display: flex; gap: 8px; margin-top: 8px;">
+          <button id="drivers-filter-apply" style="
+            flex: 1;
+            padding: 6px 12px;
+            background: #4a5568;
+            color: white;
+            border: 1px solid #718096;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 500;
+          ">Apply</button>
+          <button id="drivers-filter-clear" style="
+            flex: 1;
+            padding: 6px 12px;
+            background: #4a5568;
+            color: white;
+            border: 1px solid #718096;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 500;
+          ">Clear</button>
+        </div>
+      </div>
+      <div id="drivers-list-content" style="padding: 0;"></div>
+    </div>

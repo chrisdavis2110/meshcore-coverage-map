@@ -6,32 +6,32 @@ async function getByPrefix(prefix) {
   let query, result;
   try {
     query = prefix
-    ? 'SELECT geohash, time, path, observed, snr, rssi, drivers FROM samples WHERE geohash LIKE $1 ORDER BY geohash'
-    : 'SELECT geohash, time, path, observed, snr, rssi, drivers FROM samples ORDER BY geohash';
+      ? 'SELECT geohash, time, path, observed, snr, rssi, drivers FROM samples WHERE geohash LIKE $1 ORDER BY geohash'
+      : 'SELECT geohash, time, path, observed, snr, rssi, drivers FROM samples ORDER BY geohash';
     const params = prefix ? [`${prefix}%`] : [];
     result = await pool.query(query, params);
   } catch (error) {
     if (error.code === '42703') { // column does not exist
-        try {
-            query = prefix
-              ? 'SELECT geohash, time, path, observed, snr, rssi FROM samples WHERE geohash LIKE $1 ORDER BY geohash'
-              : 'SELECT geohash, time, path, observed, snr, rssi FROM samples ORDER BY geohash';
-            const params = prefix ? [`${prefix}%`] : [];
-            result = await pool.query(query, params);
-          } catch (error2) {
-            if (error2.code === '42703') {
-              query = prefix
-                ? 'SELECT geohash, time, path FROM samples WHERE geohash LIKE $1 ORDER BY geohash'
-                : 'SELECT geohash, time, path FROM samples ORDER BY geohash';
-              const params = prefix ? [`${prefix}%`] : [];
-              result = await pool.query(query, params);
-            } else {
-              throw error2;
-            }
-          }
+      try {
+        query = prefix
+          ? 'SELECT geohash, time, path, observed, snr, rssi FROM samples WHERE geohash LIKE $1 ORDER BY geohash'
+          : 'SELECT geohash, time, path, observed, snr, rssi FROM samples ORDER BY geohash';
+        const params = prefix ? [`${prefix}%`] : [];
+        result = await pool.query(query, params);
+      } catch (error2) {
+        if (error2.code === '42703') {
+          query = prefix
+            ? 'SELECT geohash, time, path FROM samples WHERE geohash LIKE $1 ORDER BY geohash'
+            : 'SELECT geohash, time, path FROM samples ORDER BY geohash';
+          const params = prefix ? [`${prefix}%`] : [];
+          result = await pool.query(query, params);
         } else {
-          throw error;
+          throw error2;
         }
+      }
+    } else {
+      throw error;
+    }
   }
 
   return {
@@ -55,18 +55,18 @@ async function getAll() {
     result = await pool.query('SELECT geohash, time, path, observed, snr, rssi, drivers FROM samples ORDER BY geohash');
   } catch (error) {
     if (error.code === '42703') { // column does not exist
-        try {
-          result = await pool.query('SELECT geohash, time, path, observed, snr, rssi FROM samples ORDER BY geohash');
-        } catch (error2) {
-          if (error2.code === '42703') {
-            result = await pool.query('SELECT geohash, time, path FROM samples ORDER BY geohash');
-          } else {
-            throw error2;
-          }
+      try {
+        result = await pool.query('SELECT geohash, time, path, observed, snr, rssi FROM samples ORDER BY geohash');
+      } catch (error2) {
+        if (error2.code === '42703') {
+          result = await pool.query('SELECT geohash, time, path FROM samples ORDER BY geohash');
+        } else {
+          throw error2;
         }
-      } else {
-        throw error;
       }
+    } else {
+      throw error;
+    }
   }
 
   return {
@@ -93,24 +93,24 @@ async function getWithMetadata(geohash) {
     );
   } catch (error) {
     if (error.code === '42703') { // column does not exist
-        try {
+      try {
+        result = await pool.query(
+          'SELECT geohash, time, path, observed, snr, rssi FROM samples WHERE geohash = $1',
+          [geohash]
+        );
+      } catch (error2) {
+        if (error2.code === '42703') {
           result = await pool.query(
-            'SELECT geohash, time, path, observed, snr, rssi FROM samples WHERE geohash = $1',
+            'SELECT geohash, time, path FROM samples WHERE geohash = $1',
             [geohash]
           );
-        } catch (error2) {
-          if (error2.code === '42703') {
-            result = await pool.query(
-              'SELECT geohash, time, path FROM samples WHERE geohash = $1',
-              [geohash]
-            );
-          } else {
-            throw error2;
-          }
+        } else {
+          throw error2;
         }
-      } else {
-        throw error;
       }
+    } else {
+      throw error;
+    }
   }
 
   if (result.rows.length === 0) {
@@ -174,10 +174,39 @@ async function upsert(geohash, time, path, observed = null, snr = null, rssi = n
     await pool.query(query, [geohash, time, path, normalizedObserved, snr, rssi, drivers]);
   } catch (error) {
     if (error.code === '42703') { // column does not exist - try without drivers
-        try {
+      try {
+        query = `
+          INSERT INTO samples (geohash, time, path, observed, snr, rssi)
+          VALUES ($1, $2, $3, $4, $5, $6)
+          ON CONFLICT (geohash)
+          DO UPDATE SET
+            time = GREATEST(samples.time, EXCLUDED.time),
+            path = (
+              SELECT ARRAY(
+                SELECT DISTINCT unnest(ARRAY_CAT(COALESCE(samples.path, '{}'), EXCLUDED.path))
+                ORDER BY 1
+              )
+            ),
+            observed = COALESCE(EXCLUDED.observed, samples.observed) OR COALESCE(samples.observed, EXCLUDED.observed, false),
+            snr = CASE
+              WHEN EXCLUDED.snr IS NULL THEN samples.snr
+              WHEN samples.snr IS NULL THEN EXCLUDED.snr
+              ELSE GREATEST(EXCLUDED.snr, samples.snr)
+            END,
+            rssi = CASE
+              WHEN EXCLUDED.rssi IS NULL THEN samples.rssi
+              WHEN samples.rssi IS NULL THEN EXCLUDED.rssi
+              ELSE GREATEST(EXCLUDED.rssi, samples.rssi)
+            END,
+            updated_at = CURRENT_TIMESTAMP
+        `;
+        await pool.query(query, [geohash, time, path, normalizedObserved, snr, rssi]);
+      } catch (error2) {
+        if (error2.code === '42703') {
+          // Oldest schema - no observed, snr, rssi, drivers
           query = `
-            INSERT INTO samples (geohash, time, path, observed, snr, rssi)
-            VALUES ($1, $2, $3, $4, $5, $6)
+            INSERT INTO samples (geohash, time, path)
+            VALUES ($1, $2, $3)
             ON CONFLICT (geohash)
             DO UPDATE SET
               time = GREATEST(samples.time, EXCLUDED.time),
@@ -187,45 +216,16 @@ async function upsert(geohash, time, path, observed = null, snr = null, rssi = n
                   ORDER BY 1
                 )
               ),
-              observed = COALESCE(EXCLUDED.observed, samples.observed) OR COALESCE(samples.observed, EXCLUDED.observed, false),
-              snr = CASE
-                WHEN EXCLUDED.snr IS NULL THEN samples.snr
-                WHEN samples.snr IS NULL THEN EXCLUDED.snr
-                ELSE GREATEST(EXCLUDED.snr, samples.snr)
-              END,
-              rssi = CASE
-                WHEN EXCLUDED.rssi IS NULL THEN samples.rssi
-                WHEN samples.rssi IS NULL THEN EXCLUDED.rssi
-                ELSE GREATEST(EXCLUDED.rssi, samples.rssi)
-              END,
               updated_at = CURRENT_TIMESTAMP
           `;
-          await pool.query(query, [geohash, time, path, normalizedObserved, snr, rssi]);
-        } catch (error2) {
-          if (error2.code === '42703') {
-            // Oldest schema - no observed, snr, rssi, drivers
-            query = `
-              INSERT INTO samples (geohash, time, path)
-              VALUES ($1, $2, $3)
-              ON CONFLICT (geohash)
-              DO UPDATE SET
-                time = GREATEST(samples.time, EXCLUDED.time),
-                path = (
-                  SELECT ARRAY(
-                    SELECT DISTINCT unnest(ARRAY_CAT(COALESCE(samples.path, '{}'), EXCLUDED.path))
-                    ORDER BY 1
-                  )
-                ),
-                updated_at = CURRENT_TIMESTAMP
-            `;
-            await pool.query(query, [geohash, time, path]);
-          } else {
-            throw error2;
-          }
+          await pool.query(query, [geohash, time, path]);
+        } else {
+          throw error2;
         }
-      } else {
-        throw error;
       }
+    } else {
+      throw error;
+    }
   }
 }
 

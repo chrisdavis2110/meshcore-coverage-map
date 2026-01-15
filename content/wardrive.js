@@ -629,10 +629,10 @@ async function handleConnect() {
 
     // User cancelled device picker or no device selected
     if (!connection) {
-        setStatus("No device selected", "text-amber-300");
-        connectBtn.disabled = false;
-        return;
-      }
+      setStatus("No device selected", "text-amber-300");
+      connectBtn.disabled = false;
+      return;
+    }
 
     state.connection = connection;
 
