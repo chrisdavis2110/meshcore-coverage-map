@@ -3,38 +3,64 @@ const router = express.Router();
 const coverageModel = require('../models/coverage');
 const samplesModel = require('../models/samples');
 const repeatersModel = require('../models/repeaters');
-const { truncateTime } = require('../utils/shared');
+const { truncateTime, posFromHash, isValidLocation, centerPos, maxDistanceMiles, haversineMiles } = require('../utils/shared');
 const { buildPrefixLookup, disambiguatePath } = require('../utils/prefix-disambiguation');
 
-// GET /get-nodes
+// GET /get-nodes?region=<region_name>
 router.get('/get-nodes', async (req, res, next) => {
   try {
+    const region = req.query.region || null;
     const [coverage, samples, repeaters] = await Promise.all([
       coverageModel.getAll(),
       samplesModel.getAll(),
-      repeatersModel.getAll()
+      repeatersModel.getAll(region)
     ]);
+
+    // Filter samples and coverage by geographic location
+    // This prevents showing samples from distant regions (e.g., Africa when viewing USA)
+    const filteredSamples = samples.keys.filter(s => {
+      try {
+        const pos = posFromHash(s.name);
+        const isValid = isValidLocation(pos);
+        if (!isValid && maxDistanceMiles > 0) {
+          const distance = haversineMiles(centerPos, pos);
+          console.log(`Filtered out sample ${s.name} at ${pos[0].toFixed(4)}, ${pos[1].toFixed(4)} (distance: ${distance.toFixed(1)} miles)`);
+        }
+        return isValid;
+      } catch (e) {
+        // If we can't decode the geohash, exclude it
+        console.log(`Failed to decode geohash ${s.name}:`, e.message);
+        return false;
+      }
+    });
+
+    const filteredCoverage = coverage.filter(c => {
+      try {
+        const pos = posFromHash(c.hash);
+        return isValidLocation(pos);
+      } catch (e) {
+        // If we can't decode the geohash, exclude it
+        return false;
+      }
+    });
+
+    if (maxDistanceMiles > 0) {
+      console.log(`Geographic filtering: ${samples.keys.length} -> ${filteredSamples.length} samples, ${coverage.length} -> ${filteredCoverage.length} coverage tiles (center: ${centerPos[0]}, ${centerPos[1]}, max distance: ${maxDistanceMiles} miles)`);
+    }
 
     // Build prefix disambiguation lookup from samples and repeaters
     // This resolves 2-char prefix collisions using position, co-occurrence, geography, and recency
-    const prefixLookup = buildPrefixLookup(samples.keys, repeaters.keys);
+    const prefixLookup = buildPrefixLookup(filteredSamples, repeaters.keys);
 
     // Aggregate samples by 6-character geohash prefix
     const sampleAggregates = new Map(); // geohash prefix -> { total, heard, lastTime, repeaters: Set, snr, rssi }
+
     // Track driver stats (drivers -> { count, heard, lost })
-    // Only include drivers from wardrive app (nodes sending pings), not MQTT
-    // Strategy: First pass - identify wardrive app drivers (those with at least one sample with snr/rssi)
-    // Second pass - include all samples from identified wardrive app drivers
     const wardriveAppDrivers = new Set(); // drivers known to be from wardrive app
     const driverStats = new Map(); // driver name -> { count, heard, lost }
 
-    // First pass: identify wardrive app drivers
-    // Strategy: Since MQTT no longer has drivers field, ANY sample with drivers field is from wardrive app
-    // MQTT: don't have drivers field (we removed it from the scraper)
-    // Wardrive app: always has drivers field (device name or "wardrive-user")
-    // Note: Old MQTT data might still have drivers fields, but those should be cleaned up with the script
     const allDrivers = new Set();
-    samples.keys.forEach(s => {
+    filteredSamples.forEach(s => {
       const drivers = s.metadata.drivers;
 
       // Track all drivers for debugging
@@ -49,14 +75,7 @@ router.get('/get-nodes', async (req, res, next) => {
       }
     });
 
-    // Debug logging (remove after testing)
-    if (process.env.NODE_ENV !== 'production') {
-      console.log(`[DEBUG] Found ${allDrivers.size} unique drivers:`, Array.from(allDrivers));
-      console.log(`[DEBUG] Identified ${wardriveAppDrivers.size} wardrive app drivers:`, Array.from(wardriveAppDrivers));
-    }
-
-    // Second pass: track stats for all samples from wardrive app drivers
-    samples.keys.forEach(s => {
+    filteredSamples.forEach(s => {
       const prefix = s.name.substring(0, 6); // 6-char geohash prefix
       const rawPath = s.metadata.path || [];
       // Disambiguate path prefixes to resolve collisions
@@ -68,9 +87,6 @@ router.get('/get-nodes', async (req, res, next) => {
       const rssi = s.metadata.rssi ?? null;
       const drivers = s.metadata.drivers;
 
-      // Track driver stats - only for wardrive app users (nodes sending pings)
-      // Include if drivers is known to be from wardrive app
-      // All wardrive app samples have drivers field, MQTT samples don't (after our changes)
       const isWardriveApp = drivers && wardriveAppDrivers.has(drivers);
 
       if (isWardriveApp) {
@@ -209,7 +225,7 @@ router.get('/get-nodes', async (req, res, next) => {
       });
 
     const responseData = {
-      coverage: coverage.map(c => {
+      coverage: filteredCoverage.map(c => {
         const lastHeard = c.lastHeard || 0;
         const lastObserved = c.lastObserved || lastHeard;
         const updated = lastObserved || lastHeard;
@@ -246,6 +262,7 @@ router.get('/get-nodes', async (req, res, next) => {
         lat: r.metadata.lat,
         lon: r.metadata.lon,
         elev: Math.round(r.metadata.elev || 0),
+        region: r.metadata.region || null,
       })),
       drivers: drivers
     };

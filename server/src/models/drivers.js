@@ -21,7 +21,9 @@ async function incrementHit(name, geohash) {
       hit = drivers.hit + 1,
       updated_at = CURRENT_TIMESTAMP
   `;
-  await pool.query(query, [name, geohash]);
+  const result = await pool.query(query, [name, geohash]);
+  console.log(`[DRIVER INCREMENT HIT] Updated hit for ${name} at ${geohash}, rows affected: ${result.rowCount}`);
+  return result;
 }
 
 async function convertMissToHit(name, geohash) {
@@ -38,75 +40,35 @@ async function convertMissToHit(name, geohash) {
 }
 
 async function convertMissToHitIfRecent(name, geohash, time, timeWindowMs = 300000) {
-  // Check if there's a recent miss (unobserved sample) for this driver+geohash+time
-  // timeWindowMs defaults to 5 minutes (300000ms)
-  const minTime = time - timeWindowMs;
-  const maxTime = time + timeWindowMs;
+  // Check if there's a recent miss in the drivers table for this driver+geohash
+  // We check the drivers table directly since misses are recorded there immediately
+  // when a ping is sent via /update-driver-miss
 
-  // Check if there's a recent unobserved sample for this driver+geohash+time
-  // We check samples table to see if there's a miss that matches
-  // Handle cases where drivers column might not exist
-  let checkQuery, checkResult;
-  try {
-    // Try with both observed and drivers columns
-    checkQuery = `
-      SELECT COUNT(*) as miss_count
-      FROM samples s
-      WHERE LEFT(s.geohash, 6) = $2
-        AND s.drivers = $1
-        AND s.time >= $3
-        AND s.time <= $4
-        AND (s.observed = false OR s.path = '{}' OR s.path IS NULL OR array_length(s.path, 1) IS NULL)
-    `;
-    checkResult = await pool.query(checkQuery, [name, geohash, minTime, maxTime]);
-  } catch (e) {
-    if (e.code === '42703') {
-      // Column doesn't exist - try different combinations
-      try {
-        // Try with observed column but without drivers column
-        checkQuery = `
-          SELECT COUNT(*) as miss_count
-          FROM samples s
-          WHERE LEFT(s.geohash, 6) = $2
-            AND s.time >= $3
-            AND s.time <= $4
-            AND (s.observed = false OR s.path = '{}' OR s.path IS NULL OR array_length(s.path, 1) IS NULL)
-        `;
-        checkResult = await pool.query(checkQuery, [geohash, minTime, maxTime]);
-        // If drivers column doesn't exist, we can't match by driver name
-        // Return false since we can't verify the match
-        return false;
-      } catch (e2) {
-        if (e2.code === '42703') {
-          // Neither observed nor drivers columns exist
-          checkQuery = `
-            SELECT COUNT(*) as miss_count
-            FROM samples s
-            WHERE LEFT(s.geohash, 6) = $2
-              AND s.time >= $3
-              AND s.time <= $4
-              AND (s.path = '{}' OR s.path IS NULL OR array_length(s.path, 1) IS NULL)
-          `;
-          checkResult = await pool.query(checkQuery, [geohash, minTime, maxTime]);
-          // If drivers column doesn't exist, we can't match by driver name
-          return false;
-        } else {
-          throw e2;
-        }
-      }
-    } else {
-      throw e;
-    }
-  }
+  // First check if there's a miss record in the drivers table
+  const checkQuery = `
+    SELECT miss, hit FROM drivers
+    WHERE name = $1 AND geohash = $2
+  `;
+  const checkResult = await pool.query(checkQuery, [name, geohash]);
 
-  const missCount = parseInt(checkResult.rows[0]?.miss_count || 0);
-
-  if (missCount === 0) {
-    // No recent miss found for this driver+geohash+time
+  if (checkResult.rows.length === 0) {
+    // No record exists - can't convert
+    console.log(`[DRIVER CONVERT] No record found for ${name} at ${geohash}`);
     return false;
   }
 
-  // Check if there's a miss record in drivers table and convert it
+  const currentMiss = checkResult.rows[0].miss || 0;
+  const currentHit = checkResult.rows[0].hit || 0;
+  console.log(`[DRIVER CONVERT] Current state - miss: ${currentMiss}, hit: ${currentHit} for ${name} at ${geohash}`);
+
+  if (currentMiss === 0) {
+    // No miss to convert
+    console.log(`[DRIVER CONVERT] No miss to convert (miss=${currentMiss})`);
+    return false;
+  }
+
+  // Check if there's a miss record in the drivers table for this driver+geohash
+  // The geohash is already 6-char (from coverageKey), so it matches the drivers table
   const updateQuery = `
     UPDATE drivers
     SET
@@ -117,7 +79,9 @@ async function convertMissToHitIfRecent(name, geohash, time, timeWindowMs = 3000
   `;
 
   const updateResult = await pool.query(updateQuery, [name, geohash]);
-  return updateResult.rowCount > 0;
+  const converted = updateResult.rowCount > 0;
+  console.log(`[DRIVER CONVERT] Update result - converted: ${converted}, rows: ${updateResult.rowCount}`);
+  return converted;
 }
 
 async function getByDriver(name) {
@@ -156,6 +120,19 @@ async function getStats(name) {
   return result.rows[0] || { total_hits: 0, total_misses: 0, total_tiles: 0 };
 }
 
+async function upsert(name, geohash, hit, miss) {
+  const query = `
+    INSERT INTO drivers (name, geohash, hit, miss)
+    VALUES ($1, $2, $3, $4)
+    ON CONFLICT (name, geohash)
+    DO UPDATE SET
+      hit = EXCLUDED.hit,
+      miss = EXCLUDED.miss,
+      updated_at = CURRENT_TIMESTAMP
+  `;
+  await pool.query(query, [name, geohash, hit || 0, miss || 0]);
+}
+
 module.exports = {
   incrementMiss,
   incrementHit,
@@ -165,4 +142,5 @@ module.exports = {
   getByGeohash,
   getAll,
   getStats,
+  upsert,
 };

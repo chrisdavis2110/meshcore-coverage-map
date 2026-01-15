@@ -15,6 +15,18 @@
     "meshcore/SJC/+/packets"
   ],
 
+  "topic_to_region": {
+    "meshcore/SFO/+/packets": "sf-bay",
+    "meshcore/OAK/+/packets": "sf-bay",
+    "meshcore/SJC/+/packets": "sf-bay"
+  },
+
+  "topic_region_map": {
+    "SFO": "sf-bay",
+    "OAK": "sf-bay",
+    "SJC": "sf-bay"
+  },
+
   "service_host": "http://app:3000",
   "center_position": [37.4241, -121.9756],
   "valid_dist": 60,

@@ -269,56 +269,117 @@ function mergeCoverage(id, value) {
   prev.a = Math.min(value.a, prev.a);
 }
 
-function getCoverageBoxMarker(tileId) {
-  function getMarkerColor(info) {
-    if (info.o)
-      return '#398821' // Observed - Green
-    if (info.h)
-      return '#FEAA2C' // Repeated - Orange
-    return '#E04748' // Miss - Red
-  }
-
-  const info = state.coverageTiles.get(tileId) || { o: 0, h: 0, a: refreshTileAge + 1 };
-  const [minLat, minLon, maxLat, maxLon] = geo.decode_bbox(tileId);
-
-  // Get border color from coverage data if available, otherwise use marker color
-  let borderColor;
+/**
+ * Get border color from coverage data (for initial load)
+ * Returns a color based on success rate from server coverage data
+ */
+function getBorderColorFromCoverageData(tileId) {
   const coverageData = state.tileCoverageData.get(tileId);
   if (coverageData) {
-    // Coverage data exists - use success rate to determine border color
     const totalSamples = coverageData.heard + coverageData.lost;
     if (totalSamples > 0) {
       // Use success rate to determine border color (green/orange/red gradient)
-      borderColor = successRateToColor(coverageData.successRate);
-    } else {
-      // Coverage data exists but no samples yet - use neutral gray
-      borderColor = '#6A6A6A';
+      return successRateToColor(coverageData.successRate);
     }
-  } else {
-    // No coverage data for this tile - use neutral gray
-    borderColor = '#6A6A6A';
   }
+  // No coverage data or no samples - use neutral gray
+  return '#6A6A6A';
+}
 
-  const color = getMarkerColor(info);
-  const fresh = info.a <= refreshTileAge;
-  const fillColor = fresh ? color : fadeColor(color, .4);
-  // Fill should be gray initially if no ping data, otherwise use marker color
-  const finalFillColor = (!fresh && info.o === 0 && info.h === 0) ? '#6A6A6A' : fillColor;
-  // Gray tiles (#6A6A6A) should have 33% opacity, others use 85%
-  const fillOpacity = finalFillColor === '#6A6A6A' ? 0.25 : 0.85;
-  const finalBorderColor = (!fresh && info.o === 0 && info.h === 0) ? borderColor : color;
+/**
+ * Get marker color based on tile activity (for post-ping updates)
+ */
+function getMarkerColor(info) {
+  if (info.o)
+    return '#398821' // Observed - Green
+  if (info.h)
+    return '#FEAA2C' // Repeated - Orange
+  return '#E04748' // Miss - Red
+}
+
+/**
+ * Create coverage box marker for initial load
+ * Shows gray fill with colored border based on server coverage data
+ */
+function getCoverageBoxMarkerInitial(tileId) {
+  const [minLat, minLon, maxLat, maxLon] = geo.decode_bbox(tileId);
+  const borderColor = getBorderColorFromCoverageData(tileId);
 
   const style = {
-    color: finalBorderColor,
+    color: borderColor,
     weight: 1,
-    fillColor: finalFillColor,
-    fillOpacity: fillOpacity,
+    fillColor: '#6A6A6A', // Gray fill for initial load
+    fillOpacity: 0.25,
     pane: "overlayPane",
     interactive: false
   };
   return L.rectangle([[minLat, minLon], [maxLat, maxLon]], style);
 }
 
+/**
+ * Create coverage box marker after a ping
+ * Shows actual color (green/orange/red) based on whether ping was heard/observed
+ */
+function getCoverageBoxMarkerAfterPing(tileId) {
+  const info = state.coverageTiles.get(tileId) || { o: 0, h: 0, a: refreshTileAge + 1 };
+  const [minLat, minLon, maxLat, maxLon] = geo.decode_bbox(tileId);
+
+  const color = getMarkerColor(info);
+  const fresh = info.a <= refreshTileAge;
+  const fillColor = fresh ? color : fadeColor(color, .3);
+
+  const style = {
+    color: color,
+    weight: 1,
+    fillColor: fillColor,
+    fillOpacity: 0.6,
+    pane: "overlayPane",
+    interactive: false
+  };
+  return L.rectangle([[minLat, minLon], [maxLat, maxLon]], style);
+}
+
+/**
+ * Legacy function - kept for compatibility, delegates to appropriate function
+ */
+function getCoverageBoxMarker(tileId) {
+  // Check if this tile has been pinged (has activity in coverageTiles)
+  const info = state.coverageTiles.get(tileId);
+  if (info && (info.o > 0 || info.h > 0)) {
+    // Tile has been pinged - use post-ping marker
+    return getCoverageBoxMarkerAfterPing(tileId);
+  } else {
+    // Tile hasn't been pinged yet - use initial marker
+    return getCoverageBoxMarkerInitial(tileId);
+  }
+}
+
+/**
+ * Add coverage box for initial load (gray fill, colored border)
+ */
+function addCoverageBoxInitial(tileId) {
+  coverageLayer.addLayer(getCoverageBoxMarkerInitial(tileId));
+}
+
+/**
+ * Update coverage box after a ping (colored fill based on heard/observed)
+ */
+function updateCoverageBoxAfterPing(tileId) {
+  // Remove existing marker if it exists
+  coverageLayer.eachLayer(layer => {
+    if (layer.tileId === tileId) {
+      coverageLayer.removeLayer(layer);
+    }
+  });
+  // Add new marker with post-ping styling
+  const marker = getCoverageBoxMarkerAfterPing(tileId);
+  marker.tileId = tileId; // Store tileId for easy removal
+  coverageLayer.addLayer(marker);
+}
+
+/**
+ * Legacy function - kept for compatibility
+ */
 function addCoverageBox(tileId) {
   coverageLayer.addLayer(getCoverageBoxMarker(tileId));
 }
@@ -326,7 +387,17 @@ function addCoverageBox(tileId) {
 function redrawCoverage() {
   coverageLayer.clearLayers();
   state.coveredTiles.forEach(c => {
-    addCoverageBox(c);
+    // Check if tile has been pinged - if so, use post-ping styling, otherwise initial
+    const info = state.coverageTiles.get(c);
+    if (info) {
+      // Tile has been pinged - use post-ping marker (colored fill)
+      const marker = getCoverageBoxMarkerAfterPing(c);
+      marker.tileId = c;
+      coverageLayer.addLayer(marker);
+    } else {
+      // Tile hasn't been pinged - use initial marker (gray fill, colored border)
+      addCoverageBoxInitial(c);
+    }
   });
 }
 
@@ -765,7 +836,7 @@ async function sendPing({ auto = false } = {}) {
   let repeat = null;
   if (sentToMesh) {
     try {
-      repeat = await listenForRepeat(text);
+      repeat = await listenForRepeat(text, 2500);
       log(`Heard repeat from ${repeat.repeater}`);
     } catch {
       log("Didn't hear a repeat in time, assuming lost.");
@@ -836,13 +907,13 @@ async function sendPing({ auto = false } = {}) {
   if (!state.coveredTiles.has(coverageTileId)) {
       state.coveredTiles.add(coverageTileId);
       state.coveredTilesWithAge.set(coverageTileId, Date.now());
-      addCoverageBox(coverageTileId);
+      addCoverageBoxInitial(coverageTileId);
     } else {
       // Update the age timestamp when we ping it again
       state.coveredTilesWithAge.set(coverageTileId, Date.now());
     }
 
-  // Wait a bit, then check if the sample was heard
+  // Wait a bit, then check if the sample was heard and update the tile
   setTimeout(async () => {
     const sample = await getSample(sampleId);
     const ping = { hash: sampleId };
@@ -857,7 +928,8 @@ async function sendPing({ auto = false } = {}) {
       });
     }
 
-    addCoverageBox(coverageTileId);
+    // Update tile after ping - show actual color (green/orange/red)
+    updateCoverageBoxAfterPing(coverageTileId);
     addPingHistory(ping);
   }, 2500);
 

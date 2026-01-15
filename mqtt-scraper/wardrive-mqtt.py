@@ -73,19 +73,21 @@ def post_to_service(url, data):
 
 
 # Uploads an observed sample to the service.
-def upload_sample(lat: float, lon: float, path: list[str]):
+def upload_sample(lat: float, lon: float, path: list[str], region: str = None):
   payload = {
     "lat": lat,
     "lon": lon,
     "path": path,
     "observed": True
   }
+  if region:
+    payload["region"] = region
   url = SERVICE_HOST + ADD_SAMPLE_URL
   post_to_service(url, payload)
 
 
 # Uploads a repeater update to the service.
-def upload_repeater(id: str, name: str, lat: float, lon: float, pubkey: str = None):
+def upload_repeater(id: str, name: str, lat: float, lon: float, pubkey: str = None, region: str = None):
   payload = {
     "id": id,
     "name": name,
@@ -95,6 +97,8 @@ def upload_repeater(id: str, name: str, lat: float, lon: float, pubkey: str = No
   }
   if pubkey:
     payload["pubkey"] = pubkey
+  if region:
+    payload["region"] = region
   url = SERVICE_HOST + ADD_REPEATER_URL
   post_to_service(url, payload)
 
@@ -139,7 +143,7 @@ def make_packet(raw: str):
 
 
 # Handle an ADVERT packet.
-def handle_advert(packet):
+def handle_advert(packet, region: str = None):
   # See https://github.com/meshcore-dev/MeshCore/blob/9405e8bee35195866ad1557be4af5f0c140b6ad1/src/Mesh.cpp#L231
   # See https://github.com/meshcore-dev/MeshCore/blob/9405e8bee35195866ad1557be4af5f0c140b6ad1/src/helpers/AdvertDataHelpers.cpp#L29
   payload = io.BytesIO(packet["payload"])
@@ -186,11 +190,11 @@ def handle_advert(packet):
     name = to_utf8(payload.read())
 
   if is_valid_location(lat, lon):
-    upload_repeater(id, name, lat, lon, pubkey_hex)
+    upload_repeater(id, name, lat, lon, pubkey_hex, region)
 
 
 # Handle a GROUP_MSG packet.
-def handle_channel_msg(packet):
+def handle_channel_msg(packet, region: str = None):
   # See https://github.com/meshcore-dev/MeshCore/blob/9405e8bee35195866ad1557be4af5f0c140b6ad1/src/Mesh.cpp#L206C1-L206C33
   payload = io.BytesIO(packet["payload"])
 
@@ -227,7 +231,7 @@ def handle_channel_msg(packet):
     print(f"Ignoring first hop {ignored}, using {first_repeater}")
 
   if is_valid_location(lat, lon) and first_repeater != '':
-    upload_sample(lat, lon, [first_repeater])
+    upload_sample(lat, lon, [first_repeater], region)
 
 
 # Callback when the client receives a CONNACK response from the broker.
@@ -271,6 +275,31 @@ def on_message(client, userdata, msg):
     if watched_observers and data["origin"] not in watched_observers:
       return
 
+    # Determine region from topic
+    # Check topic_to_region mapping first, then try to extract from topic name
+    region = None
+    topic_to_region = CONFIG.get("topic_to_region", {})
+    if msg.topic in topic_to_region:
+      region = topic_to_region[msg.topic]
+    elif topic_to_region:
+      # Try pattern matching (e.g., "meshcore/SFO/+/packets" -> "sfbay")
+      for topic_pattern, mapped_region in topic_to_region.items():
+        # Simple pattern matching - check if topic starts with pattern or contains key parts
+        if topic_pattern in msg.topic or msg.topic.startswith(topic_pattern.replace("+", "").replace("/+/", "/")):
+          region = mapped_region
+          break
+
+    # If no explicit mapping, try to extract region from topic name
+    # e.g., "meshcore/SFO/+/packets" -> "SFO" -> "sfbay"
+    if not region:
+      topic_region_map = CONFIG.get("topic_region_map", {})
+      # Extract potential region codes from topic (e.g., SFO, OAK, SJC)
+      topic_parts = msg.topic.split("/")
+      for part in topic_parts:
+        if part in topic_region_map:
+          region = topic_region_map[part]
+          break
+
     # Is this an advert (4) or group message (5)?
     packet_type = data["packet_type"]
     if packet_type not in ["4", "5"]: return
@@ -286,9 +315,9 @@ def on_message(client, userdata, msg):
 
     # Handle the app-specific payload.
     if packet_type == "4":
-      handle_advert(packet)
+      handle_advert(packet, region)
     elif packet_type == "5":
-      handle_channel_msg(packet)
+      handle_channel_msg(packet, region)
 
     # All done, mark this hash 'seen'.
     SEEN.append(packet_hash)

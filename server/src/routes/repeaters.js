@@ -45,10 +45,11 @@ async function getElevation(lat, lon) {
   }
 }
 
-// GET /get-repeaters
+// GET /get-repeaters?region=<region_name>
 router.get('/get-repeaters', async (req, res, next) => {
   try {
-    const repeaters = await repeatersModel.getAll();
+    const region = req.query.region || null;
+    const repeaters = await repeatersModel.getAll(region);
     res.json(repeaters);
   } catch (error) {
     next(error);
@@ -58,7 +59,7 @@ router.get('/get-repeaters', async (req, res, next) => {
 // POST /put-repeater
 router.post('/put-repeater', express.json(), async (req, res, next) => {
   try {
-    const { id, name, lat, lon, pubkey } = req.body;
+    const { id, name, lat, lon, pubkey, region } = req.body;
     const [parsedLat, parsedLon] = parseLocation(lat, lon);
     const time = Date.now();
     const normalizedId = id.toLowerCase();
@@ -74,7 +75,7 @@ router.post('/put-repeater', express.json(), async (req, res, next) => {
       elev = elevation !== null ? Math.round(elevation * 100) / 100 : null;
     }
 
-    await repeatersModel.upsert(normalizedId, parsedLat, parsedLon, name, elev, time, pubkey);
+    await repeatersModel.upsert(normalizedId, parsedLat, parsedLon, name, elev, time, pubkey, region);
 
     res.send('OK');
   } catch (error) {

@@ -52,7 +52,7 @@ function getCenterPos() {
 
 // Maximum distance in miles from center (configurable via env var)
 // Set to 0 or negative to disable distance checking
-// Default: 0 (no distance limit)
+// Default: 2500 (covers most of USA from San Jose center)
 function getMaxDistanceMiles() {
   const maxDist = process.env.MAX_DISTANCE_MILES;
   if (maxDist !== undefined) {
@@ -61,8 +61,9 @@ function getMaxDistanceMiles() {
       return dist;
     }
   }
-  // Default: 0 (no distance limit)
-  return 0;
+  // Default: 2500 miles (covers USA reasonably well from San Jose)
+  // Set MAX_DISTANCE_MILES=0 in .env to disable filtering
+  return 2500;
 }
 
 const centerPos = getCenterPos();
@@ -70,7 +71,7 @@ const maxDistanceMiles = getMaxDistanceMiles();
 
 function isValidLocation(p) {
   const [lat, lon] = p;
-  
+
   // Always validate lat/lon bounds
   if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
     return false;
@@ -81,7 +82,9 @@ function isValidLocation(p) {
     return true;
   }
 
-  return haversineMiles(centerPos, p) < maxDistanceMiles;
+  // Check distance from center
+  const distance = haversineMiles(centerPos, p);
+  return distance < maxDistanceMiles;
 }
 
 function parseLocation(latStr, lonStr) {
@@ -170,4 +173,3 @@ module.exports = {
   getCenterPos,
   getMaxDistanceMiles,
 };
-

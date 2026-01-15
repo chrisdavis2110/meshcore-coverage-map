@@ -112,6 +112,32 @@ For Bay Area, the scraper watches:
 - `meshcore/SFO/+/packets` - San Francisco region
 - `meshcore/SJC/+/packets` - San Jose region
 
+### Region Mapping
+
+To support multiple regions and avoid repeater ID conflicts, you can map topics to regions:
+
+```json
+{
+  "topic_to_region": {
+    "meshcore/SFO/+/packets": "sf-bay",
+    "meshcore/OAK/+/packets": "sf-bay",
+    "meshcore/SJC/+/packets": "sf-bay",
+    "meshcore/NYC/+/packets": "nyc"
+  },
+  "topic_region_map": {
+    "SFO": "sf-bay",
+    "OAK": "sf-bay",
+    "SJC": "sf-bay",
+    "NYC": "nyc"
+  }
+}
+```
+
+- **topic_to_region**: Maps exact topic patterns to region names
+- **topic_region_map**: Maps topic parts (like "SFO", "OAK") to region names for automatic extraction
+
+When a region is specified, all repeaters and samples from that topic will be tagged with the region, preventing conflicts when the same repeater ID exists in multiple regions.
+
 ### Watched Observers
 
 Currently configured to watch:
