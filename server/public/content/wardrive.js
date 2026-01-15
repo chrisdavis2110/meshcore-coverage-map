@@ -14,6 +14,7 @@ import {
   centerPos,
   coverageKey,
   geo,
+  initialZoom,
   isValidLocation,
   loadConfig,
   maxDistanceMiles,
@@ -72,13 +73,13 @@ let osm = null;
 let coverageLayer = null;
 let pingLayer = null;
 let currentLocMarker = L.circleMarker([0, 0], {
-  radius: 3,
-  weight: 0,
-  color: "red",
-  fillOpacity: .8,
-  interactive: false,
-  pane: "tooltipPane"
-});
+    radius: 3,
+    weight: 0,
+    color: "red",
+    fillOpacity: .8,
+    interactive: false,
+    pane: "tooltipPane"
+  });
 
 function setStatus(text, color = null) {
   statusEl.textContent = text;
@@ -1319,7 +1320,7 @@ export async function onLoad() {
       tap: false,
       zoomControl: false,
       doubleClickZoom: false
-    }).setView(centerPos, 12);
+    }).setView(centerPos, initialZoom);
 
     // Create and add tile layer
     osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {

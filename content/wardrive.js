@@ -504,7 +504,7 @@ async function sendPing({ auto = false } = {}) {
       console.error("Driver miss update failed", e);
       // Don't fail the ping if driver update fails
     }
-    
+
     // Send sample to service.
     try {
       await fetch("https://mesh-map.pages.dev/put-sample", {

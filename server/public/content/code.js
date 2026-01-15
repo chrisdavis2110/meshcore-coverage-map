@@ -3,6 +3,7 @@ import {
   centerPos,
   geo,
   haversineMiles,
+  initialZoom,
   loadConfig,
   maxDistanceMiles,
   posFromHash,
@@ -19,6 +20,8 @@ let osm = null;
 let repeaterRenderMode = 'all';
 let repeaterSearch = '';
 let showSamples = false;
+let colorPalette = 'red-yellow-green'; // 'red-yellow-green', 'blue', 'patterns'
+let queryMode = 'coverage'; // 'coverage', 'observed-pct', 'heard-pct', 'last-updated', 'past-day', 'repeater-count', 'sample-count'
 
 // Data
 let nodes = null; // Graph data from the last refresh
@@ -41,6 +44,31 @@ mapControl.onAdd = m => {
   const div = L.DomUtil.create('div', 'mesh-control leaflet-control');
 
   div.innerHTML = `
+    <div class="mesh-control-row">
+      <label>
+        Query:
+        <select id="query-mode-select">
+          <option value="coverage" selected="true">Coverage</option>
+          <option value="observed-pct">Observed %</option>
+          <option value="heard-pct">Heard %</option>
+          <option value="last-updated">Last Updated</option>
+          <option value="past-day">Past Day</option>
+          <option value="repeater-count">Repeater Count</option>
+          <option value="sample-count">Sample Count</option>
+        </select>
+      </label>
+    </div>
+    <div class="mesh-control-row">
+      <label>
+        Color Palette:
+        <select id="color-palette-select">
+          <option value="red-yellow-green" selected="true">Red/Yellow/Green</option>
+          <option value="blue">Blue</option>
+          <option value="patterns">Patterns</option>
+          <option value="simple-green">Simple Green</option>
+        </select>
+      </label>
+    </div>
     <div class="mesh-control-row">
       <label>
         Repeaters:
@@ -67,6 +95,22 @@ mapControl.onAdd = m => {
       <button type="button" id="refresh-map-button">Refresh map</button>
     </div>
   `;
+
+  div.querySelector("#query-mode-select")
+    .addEventListener("change", (e) => {
+      queryMode = e.target.value;
+      if (nodes) {
+        renderNodes(nodes);
+      }
+    });
+
+  div.querySelector("#color-palette-select")
+    .addEventListener("change", (e) => {
+      colorPalette = e.target.value;
+      if (nodes) {
+        renderNodes(nodes);
+      }
+    });
 
   div.querySelector("#repeater-filter-select")
     .addEventListener("change", (e) => {
@@ -265,8 +309,8 @@ async function initMap() {
   // Load config from server
   await loadConfig();
 
-  // Initialize map with configured center position
-  map = L.map('map', { worldCopyJump: true }).setView(centerPos, 10);
+  // Initialize map with configured center position and initial zoom
+  map = L.map('map', { worldCopyJump: true }).setView(centerPos, initialZoom);
 
   // Create and add tile layer
   osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -279,6 +323,9 @@ async function initMap() {
   edgeLayer = L.layerGroup().addTo(map);
   sampleLayer = L.layerGroup().addTo(map);
   repeaterLayer = L.layerGroup().addTo(map);
+
+  // Initialize SVG patterns for pattern palette
+  initSVGPatterns();
 
   // Add controls
   mapControl.addTo(map);
@@ -322,6 +369,141 @@ if (document.readyState === 'loading') {
   });
 }
 
+// Initialize SVG patterns for pattern palette
+function initSVGPatterns() {
+  // Wait for map to be ready, then add patterns to the SVG container
+  map.whenReady(() => {
+    // Use a small delay to ensure Leaflet has created the SVG
+    setTimeout(() => {
+      const mapContainer = map.getContainer();
+      let svg = mapContainer.querySelector('svg.leaflet-zoom-animated');
+
+      if (!svg) {
+        // Try again after a longer delay
+        setTimeout(initSVGPatterns, 200);
+        return;
+      }
+
+      let svgDefs = svg.querySelector('defs');
+
+      // Create defs if it doesn't exist
+      if (!svgDefs) {
+        svgDefs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+        svg.insertBefore(svgDefs, svg.firstChild);
+      }
+
+      // Check if patterns already exist
+      if (svgDefs.querySelector('#pattern-sparse-lines')) {
+        return; // Patterns already initialized
+      }
+
+    // Sparse horizontal lines pattern (0%) - screen-door effect
+    const sparseLines = document.createElementNS('http://www.w3.org/2000/svg', 'pattern');
+    sparseLines.setAttribute('id', 'pattern-sparse-lines');
+    sparseLines.setAttribute('patternUnits', 'userSpaceOnUse');
+    sparseLines.setAttribute('width', '20');
+    sparseLines.setAttribute('height', '20');
+    const sparseLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    sparseLine.setAttribute('x1', '0');
+    sparseLine.setAttribute('y1', '10');
+    sparseLine.setAttribute('x2', '20');
+    sparseLine.setAttribute('y2', '10');
+    sparseLine.setAttribute('stroke', '#000000');
+    sparseLine.setAttribute('stroke-width', '1');
+    sparseLines.appendChild(sparseLine);
+    svgDefs.appendChild(sparseLines);
+
+    // Medium horizontal lines pattern (>0%)
+    const mediumLines = document.createElementNS('http://www.w3.org/2000/svg', 'pattern');
+    mediumLines.setAttribute('id', 'pattern-medium-lines');
+    mediumLines.setAttribute('patternUnits', 'userSpaceOnUse');
+    mediumLines.setAttribute('width', '12');
+    mediumLines.setAttribute('height', '12');
+    const mediumLine1 = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    mediumLine1.setAttribute('x1', '0');
+    mediumLine1.setAttribute('y1', '4');
+    mediumLine1.setAttribute('x2', '12');
+    mediumLine1.setAttribute('y2', '4');
+    mediumLine1.setAttribute('stroke', '#000000');
+    mediumLine1.setAttribute('stroke-width', '1');
+    const mediumLine2 = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    mediumLine2.setAttribute('x1', '0');
+    mediumLine2.setAttribute('y1', '8');
+    mediumLine2.setAttribute('x2', '12');
+    mediumLine2.setAttribute('y2', '8');
+    mediumLine2.setAttribute('stroke', '#000000');
+    mediumLine2.setAttribute('stroke-width', '1');
+    mediumLines.appendChild(mediumLine1);
+    mediumLines.appendChild(mediumLine2);
+    svgDefs.appendChild(mediumLines);
+
+    // Dense horizontal lines pattern (>25%)
+    const denseLines = document.createElementNS('http://www.w3.org/2000/svg', 'pattern');
+    denseLines.setAttribute('id', 'pattern-dense-lines');
+    denseLines.setAttribute('patternUnits', 'userSpaceOnUse');
+    denseLines.setAttribute('width', '8');
+    denseLines.setAttribute('height', '8');
+    const denseLine1 = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    denseLine1.setAttribute('x1', '0');
+    denseLine1.setAttribute('y1', '2');
+    denseLine1.setAttribute('x2', '8');
+    denseLine1.setAttribute('y2', '2');
+    denseLine1.setAttribute('stroke', '#000000');
+    denseLine1.setAttribute('stroke-width', '1');
+    const denseLine2 = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    denseLine2.setAttribute('x1', '0');
+    denseLine2.setAttribute('y1', '6');
+    denseLine2.setAttribute('x2', '8');
+    denseLine2.setAttribute('y2', '6');
+    denseLine2.setAttribute('stroke', '#000000');
+    denseLine2.setAttribute('stroke-width', '1');
+    denseLines.appendChild(denseLine1);
+    denseLines.appendChild(denseLine2);
+    svgDefs.appendChild(denseLines);
+
+    // Very dense horizontal lines pattern (>40%)
+    const veryDenseLines = document.createElementNS('http://www.w3.org/2000/svg', 'pattern');
+    veryDenseLines.setAttribute('id', 'pattern-very-dense-lines');
+    veryDenseLines.setAttribute('patternUnits', 'userSpaceOnUse');
+    veryDenseLines.setAttribute('width', '4');
+    veryDenseLines.setAttribute('height', '4');
+    const veryDenseLine1 = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    veryDenseLine1.setAttribute('x1', '0');
+    veryDenseLine1.setAttribute('y1', '1');
+    veryDenseLine1.setAttribute('x2', '4');
+    veryDenseLine1.setAttribute('y2', '1');
+    veryDenseLine1.setAttribute('stroke', '#000000');
+    veryDenseLine1.setAttribute('stroke-width', '1');
+    const veryDenseLine2 = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    veryDenseLine2.setAttribute('x1', '0');
+    veryDenseLine2.setAttribute('y1', '3');
+    veryDenseLine2.setAttribute('x2', '4');
+    veryDenseLine2.setAttribute('y2', '3');
+    veryDenseLine2.setAttribute('stroke', '#000000');
+    veryDenseLine2.setAttribute('stroke-width', '1');
+    veryDenseLines.appendChild(veryDenseLine1);
+    veryDenseLines.appendChild(veryDenseLine2);
+    svgDefs.appendChild(veryDenseLines);
+
+    // Solid pattern (>70%) - very dense lines that appear almost solid
+    const solid = document.createElementNS('http://www.w3.org/2000/svg', 'pattern');
+    solid.setAttribute('id', 'pattern-solid');
+    solid.setAttribute('patternUnits', 'userSpaceOnUse');
+    solid.setAttribute('width', '2');
+    solid.setAttribute('height', '2');
+    const solidLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    solidLine.setAttribute('x1', '0');
+    solidLine.setAttribute('y1', '1');
+    solidLine.setAttribute('x2', '2');
+    solidLine.setAttribute('y2', '1');
+    solidLine.setAttribute('stroke', '#000000');
+    solidLine.setAttribute('stroke-width', '1');
+    solid.appendChild(solidLine);
+    svgDefs.appendChild(solid);
+    }, 100); // Delay to ensure SVG is ready
+  });
+}
+
 function escapeHtml(s) {
   return String(s)
     .replaceAll('&', '&amp;')
@@ -329,81 +511,331 @@ function escapeHtml(s) {
     .replaceAll('>', '&gt;');
 }
 
-// Convert success rate (0-1) to a color gradient:
-// Dark green (100%) -> Light green -> Orange -> Red-orange -> Red (0%)
-function successRateToColor(rate) {
-  // Clamp rate to 0-1
+// Convert rate to hex color
+function toHex(n) {
+  const hex = n.toString(16);
+  return hex.length === 1 ? '0' + hex : hex;
+}
+
+function rgbToHex(r, g, b) {
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+}
+
+// Palette 1: Red/Orange/Yellow/Light-Green/Dark-Green
+// 0=red, >0=red, >25%=orange, >40%=yellow, >70%=light green, >70%=dark green
+function paletteRedYellowGreen(rate) {
   const clampedRate = Math.max(0, Math.min(1, rate));
 
-  let red, green, blue;
-
-  if (clampedRate >= 0.8) {
-    // Dark green (0, 100, 0) to lighter green (50, 150, 50) (80-100%)
-    // Making light green closer to dark green
-    const t = (clampedRate - 0.8) / 0.2;       // 0 to 1
-    red = Math.round(0 + (50 - 0) * t);        // 0 -> 50
-    green = Math.round(100 + (150 - 100) * t); // 100 -> 150
-    blue = Math.round(0 + (50 - 0) * t);       // 0 -> 50
-  } else if (clampedRate >= 0.6) {
-    // Light green (50, 150, 50) to orange (255, 165, 0) (60-80%)
-    const t = (clampedRate - 0.6) / 0.2;        // 0 to 1
-    red = Math.round(50 + (255 - 50) * t);      // 50 -> 255
-    green = Math.round(150 + (165 - 150) * t);  // 150 -> 165
-    blue = Math.round(50 - 50 * t);             // 50 -> 0
-  } else if (clampedRate >= 0.4) {
-    // Orange (255, 165, 0) to red-orange (255, 100, 0) (40-60%)
-    const t = (clampedRate - 0.4) / 0.2;          // 0 to 1
-    red = 255;                                    // 255
-    green = Math.round(165 + (100 - 165) * t);    // 165 -> 100
-    blue = 0;                                     // 0
-  } else if (clampedRate >= 0.2) {
-    // Red-orange (255, 100, 0) to red (255, 0, 0) (20-40%)
-    const t = (clampedRate - 0.2) / 0.2;       // 0 to 1
-    red = 255;                                 // 255
-    green = Math.round(100 - 100 * t);         // 1000 -> 0
-    blue = 0;                                  // 0
+  if (clampedRate === 0) {
+    return '#FF0000'; // Red
+  } else if (clampedRate <= 0.25) {
+    return '#FF0000'; // Red
+  } else if (clampedRate <= 0.40) {
+    return '#FFA500'; // Orange
+  } else if (clampedRate <= 0.70) {
+    return '#FFFF00'; // Yellow
+  } else if (clampedRate <= 0.85) {
+    return '#90EE90'; // Light green
   } else {
-    // Red (255, 0, 0) (0-20%)
-    red = 255;                      // 255
-    green = 0;                      // 0
-    blue = 0;                       // 0
+    return '#006400'; // Dark green
+  }
+}
+
+// Palette 2: Blue (wider range from very light to very dark)
+// 0=very light blue, >0=light blue, >25%=medium blue, >40%=blue, >70%=dark blue, >85%=very dark blue
+function paletteBlue(rate) {
+  const clampedRate = Math.max(0, Math.min(1, rate));
+
+  if (clampedRate === 0) {
+    return '#E6F3FF'; // Very light blue
+  } else if (clampedRate <= 0.25) {
+    return '#B3D9FF'; // Light blue
+  } else if (clampedRate <= 0.40) {
+    return '#87CEEB'; // Medium blue (sky blue)
+  } else if (clampedRate <= 0.70) {
+    return '#4169E1'; // Royal blue
+  } else if (clampedRate <= 0.85) {
+    return '#0000CD'; // Medium dark blue
+  } else {
+    return '#000033'; // Very dark blue
+  }
+}
+
+// Palette 3: Patterns (screen-door effect with sparse to dense lines for colorblind accessibility)
+// Returns an object with fillColor, fillPattern, and patternId
+function palettePatterns(rate) {
+  const clampedRate = Math.max(0, Math.min(1, rate));
+
+  let patternId;
+  if (clampedRate === 0) {
+    patternId = 'pattern-sparse-lines';
+  } else if (clampedRate <= 0.25) {
+    patternId = 'pattern-medium-lines';
+  } else if (clampedRate <= 0.40) {
+    patternId = 'pattern-dense-lines';
+  } else if (clampedRate <= 0.70) {
+    patternId = 'pattern-very-dense-lines';
+  } else {
+    patternId = 'pattern-solid';
   }
 
-  // Convert to hex
-  const toHex = (n) => {
-    const hex = n.toString(16);
-    return hex.length === 1 ? '0' + hex : hex;
+  return {
+    fillColor: '#E0E0E0', // Light grey base (will be overlaid with black patterns)
+    fillPattern: patternId,
+    patternUrl: `url(#${patternId})`
   };
+}
 
-  return `#${toHex(red)}${toHex(green)}${toHex(blue)}`;
+// Palette 4: Simple Green (3 options)
+// <25% = empty gray box (with gray border), <50% = light green, <100% = dark green
+function paletteSimpleGreen(rate) {
+  const clampedRate = Math.max(0, Math.min(1, rate));
+
+  if (clampedRate < 0.25) {
+    return {
+      fillColor: '#F5F5F5', // Very light gray (appears empty)
+      borderColor: '#808080', // Gray border
+      fillOpacity: 0, // Transparent fill
+      hasBorder: true
+    };
+  } else if (clampedRate < 0.50) {
+    return {
+      fillColor: '#90EE90', // Light green
+      borderColor: '#90EE90',
+      fillOpacity: 1,
+      hasBorder: false
+    };
+  } else {
+    return {
+      fillColor: '#006400', // Dark green
+      borderColor: '#006400',
+      fillOpacity: 1,
+      hasBorder: false
+    };
+  }
+}
+
+// Main function to get color/style based on selected palette
+function successRateToColor(rate) {
+  const clampedRate = Math.max(0, Math.min(1, rate));
+
+  if (colorPalette === 'red-yellow-green') {
+    return paletteRedYellowGreen(clampedRate);
+  } else if (colorPalette === 'blue') {
+    return paletteBlue(clampedRate);
+  } else if (colorPalette === 'patterns') {
+    const pattern = palettePatterns(clampedRate);
+    return pattern.fillColor; // For markers that don't support patterns, return base color
+  } else if (colorPalette === 'simple-green') {
+    const simple = paletteSimpleGreen(clampedRate);
+    // For empty boxes (hasBorder: true), return gray for circle markers
+    return simple.hasBorder ? '#808080' : simple.fillColor;
+  }
+
+  // Fallback to red-yellow-green
+  return paletteRedYellowGreen(clampedRate);
+}
+
+// Get value for current query mode (0-1 for color mapping)
+function getQueryValue(coverage) {
+  function recencyScore(ageDays) {
+    // Piecewise mapping:
+    // <=1 day: 1.0
+    // 2 days: 0.75
+    // 3 days: 0.50
+    // 5 days: 0.25
+    // >=7 days: 0.0
+    const points = [
+      { d: 0, v: 1.0 },
+      { d: 1, v: 1.0 },
+      { d: 2, v: 0.75 },
+      { d: 3, v: 0.50 },
+      { d: 5, v: 0.25 },
+      { d: 7, v: 0.0 },
+      { d: 30, v: 0.0 },
+    ];
+
+    // Clamp negative ages to 0
+    const clampedAge = Math.max(0, ageDays);
+
+    for (let i = 1; i < points.length; i++) {
+      const prev = points[i - 1];
+      const curr = points[i];
+      if (clampedAge <= curr.d) {
+        const t = (clampedAge - prev.d) / (curr.d - prev.d);
+        return prev.v + (curr.v - prev.v) * t;
+      }
+    }
+    return 0.0;
+  }
+
+  switch (queryMode) {
+    case 'coverage': {
+      const totalSamples = coverage.rcv + coverage.lost;
+      return totalSamples > 0 ? coverage.rcv / totalSamples : 0;
+    }
+    case 'observed-pct': {
+      // Observed %: obs / total samples
+      const totalSamples = coverage.rcv + coverage.lost;
+      const obs = coverage.obs ?? 0;
+      return totalSamples > 0 ? obs / totalSamples : 0;
+    }
+    case 'heard-pct': {
+      // Heard %: rcv / (rcv + lost)
+      const totalSamples = coverage.rcv + coverage.lost;
+      return totalSamples > 0 ? coverage.rcv / totalSamples : 0;
+    }
+    case 'last-updated': {
+      // Color by recency with fixed breakpoints:
+      // <=1d:1.0, 2d:0.75, 3d:0.50, 5d:0.25, >=7d:0.0
+      const truncatedTime = coverage.time || coverage.ut || coverage.lot || coverage.lht || 0;
+      if (truncatedTime === 0) return 0.0; // No time data = old
+      const timeMs = fromTruncatedTime(truncatedTime);
+      const nowMs = Date.now();
+      const ageMs = nowMs - timeMs;
+      const ageDays = ageMs / (1000 * 86400);
+      return recencyScore(ageDays);
+    }
+    case 'past-day': {
+      // Only show if within past 24h, otherwise return 0 (will be filtered)
+      const truncatedTime = coverage.time || coverage.ut || coverage.lot || coverage.lht || 0;
+      if (truncatedTime === 0) return 0; // No time data = filter out
+      const timeMs = fromTruncatedTime(truncatedTime);
+      const nowMs = Date.now();
+      const ageMs = nowMs - timeMs;
+      const ageDays = ageMs / (1000 * 86400);
+      if (ageDays > 1) return 0; // Filter out old data
+      // Within past day, still use recency scaling so sub-day ages stay at 1.0
+      return recencyScore(ageDays);
+    }
+    case 'repeater-count': {
+      // Color by repeater count: 0=0.0, 1=0.5, 2=0.75, >2=1.0
+      const count = (coverage.rptr && coverage.rptr.length) || 0;
+      if (count === 0) return 0.0;
+      if (count === 1) return 0.5;
+      if (count === 2) return 0.75;
+      return 1.0; // >2
+    }
+    case 'sample-count': {
+      // Color by sample count, normalized to min/max in current data
+      const count = coverage.rcv + coverage.lost;
+      if (count === 0) return 0.0;
+      // Use normalized value (will be calculated in renderNodes)
+      const range = globalSampleMax - globalSampleMin;
+      return range > 0 ? (count - globalSampleMin) / range : 1.0;
+    }
+    default:
+      return 0;
+  }
+}
+
+// Get global min/max for sample count normalization
+let globalSampleMin = 0;
+let globalSampleMax = 1;
+
+function updateGlobalSampleStats() {
+  if (!hashToCoverage) {
+    globalSampleMin = 0;
+    globalSampleMax = 1;
+    return;
+  }
+  let min = Infinity;
+  let max = 0;
+  hashToCoverage.forEach((coverage) => {
+    const count = coverage.rcv + coverage.lost;
+    if (count > 0) {
+      min = Math.min(min, count);
+      max = Math.max(max, count);
+    }
+  });
+  globalSampleMin = min === Infinity ? 0 : min;
+  globalSampleMax = max === 0 ? 1 : max;
+}
+
+// Get style object for patterns (used by rectangles)
+function successRateToStyle(rate) {
+  const clampedRate = Math.max(0, Math.min(1, rate));
+
+  if (colorPalette === 'patterns') {
+    const pattern = palettePatterns(clampedRate);
+    return {
+      fillColor: pattern.fillColor,
+      fillPattern: pattern.fillPattern,
+      patternUrl: pattern.patternUrl
+    };
+  } else if (colorPalette === 'simple-green') {
+    const simple = paletteSimpleGreen(clampedRate);
+    return {
+      fillColor: simple.fillColor,
+      borderColor: simple.borderColor,
+      fillOpacity: simple.fillOpacity,
+      hasBorder: simple.hasBorder
+    };
+  }
+
+  // For color palettes, return just the color
+  return {
+    fillColor: successRateToColor(clampedRate)
+  };
 }
 
 function coverageMarker(coverage) {
   const [minLat, minLon, maxLat, maxLon] = geo.decode_bbox(coverage.id);
+
+  // Get value for current query mode
+  let queryValue = getQueryValue(coverage);
+
+  // For past-day, filter out if value is 0
+  if (queryMode === 'past-day' && queryValue === 0) {
+    return null; // Don't render this marker
+  }
+
+  // Get style based on palette
+  const styleInfo = successRateToStyle(queryValue);
+  const color = successRateToColor(queryValue);
+  const date = new Date(fromTruncatedTime(coverage.time || 0));
+
   const totalSamples = coverage.rcv + coverage.lost;
   const heardRatio = totalSamples > 0 ? coverage.rcv / totalSamples : 0;
-  // Use gradient color based on success rate
-  const color = successRateToColor(heardRatio);
-  const date = new Date(fromTruncatedTime(coverage.time || 0));
+
   // Ensure tiles with only lost samples are visible
   // Base opacity on total samples, but ensure minimum visibility for lost-only tiles
   const baseOpacity = 0.75 * sigmoid(totalSamples, 1.2, 2);
-  // For tiles with only lost samples, use higher minimum opacity
-  const opacity = heardRatio > 0
-    ? baseOpacity * heardRatio
-    : Math.max(baseOpacity, 0.4); // At least 40% opacity for lost-only tiles
+  // For query modes, use queryValue for opacity; for others, use heardRatio
+  const opacityValue = (queryMode === 'past-day' || queryMode === 'last-updated')
+    ? queryValue
+    : (heardRatio > 0 ? baseOpacity * heardRatio : Math.max(baseOpacity, 0.4));
+
   const style = {
-    color: color,
-    weight: 1,
-    fillOpacity: Math.max(opacity, 0.2), // Minimum 20% opacity for all tiles
+    color: styleInfo.borderColor || color,
+    weight: styleInfo.hasBorder ? 2 : 1, // Thicker border for empty boxes
+    fillColor: styleInfo.fillColor || color,
+    fillOpacity: styleInfo.fillOpacity !== undefined ? styleInfo.fillOpacity : Math.max(opacityValue, 0.2), // Use palette opacity or minimum 20% opacity
   };
+
   const rect = L.rectangle([[minLat, minLon], [maxLat, maxLon]], style);
+
+  // Apply pattern if using patterns palette
+  if (colorPalette === 'patterns' && styleInfo.patternUrl) {
+    rect.on('add', function() {
+      // Use setTimeout to ensure the element is fully rendered
+      setTimeout(() => {
+        const path = rect.getElement();
+        if (path) {
+          path.setAttribute('fill', styleInfo.patternUrl);
+          path.setAttribute('fill-opacity', style.fillOpacity || 0.6);
+        }
+      }, 10);
+    });
+  }
   let details = `
     <strong>${coverage.id}</strong><br/>
-    Heard: ${coverage.rcv} Lost: ${coverage.lost} (${(100 * heardRatio).toFixed(0)}%)<br/>
-    Updated: ${date.toLocaleString()}`;
+    Heard: ${coverage.rcv} Lost: ${coverage.lost} (${(100 * heardRatio).toFixed(0)}%)<br/>`;
+  if (coverage.obs !== undefined) {
+    details += `Observed: ${coverage.obs}<br/>`;
+  }
+  details += `Updated: ${date.toLocaleString()}`;
   if (coverage.rptr && coverage.rptr.length > 0) {
-    // Display repeater IDs in uppercase for readability
     details += `<br/>Repeaters: ${coverage.rptr.map(r => r.toUpperCase()).join(',')}`;
   }
   if (coverage.snr !== null && coverage.snr !== undefined) {
@@ -844,9 +1276,17 @@ function renderNodes(nodes) {
   sampleLayer.clearLayers();
   repeaterLayer.clearLayers();
 
+  // Update global stats for sample-count normalization
+  if (queryMode === 'sample-count') {
+    updateGlobalSampleStats();
+  }
+
   // Add coverage boxes.
   hashToCoverage.entries().forEach(([key, coverage]) => {
-    coverageLayer.addLayer(coverageMarker(coverage));
+    const marker = coverageMarker(coverage);
+    if (marker) { // Past-day mode may return null
+      coverageLayer.addLayer(marker);
+    }
   });
 
   // Add samples (aggregated if showSamples is false, individual if true)
@@ -911,8 +1351,9 @@ function renderNodes(nodes) {
     edgeKeys.add(uniqueKey);
 
     const style = {
-      weight: 2,
+      weight: 3,
       opacity: 0,
+      color: '#1e40af', // Darker blue
       dashArray: '2,4',
       interactive: false,
     };
@@ -950,6 +1391,14 @@ function buildIndexes(nodes) {
     if (c.rcv === undefined && c.heard !== undefined) {
       c.rcv = c.heard;
     }
+    // Ensure obs and hrd fields exist (from backend obs/rcv)
+    if (c.obs === undefined) {
+      c.obs = c.observed ?? 0;
+    }
+    if (c.hrd === undefined) {
+      c.hrd = c.rcv ?? 0;
+    }
+    // snr and rssi are already on c from backend and will be preserved when set in map
     hashToCoverage.set(c.id, c);
   });
 
@@ -972,6 +1421,7 @@ function buildIndexes(nodes) {
         rptr: (s.path || s.rptr) ? [...(s.path || s.rptr)] : [],
         snr: (s.snr !== null && s.snr !== undefined) ? s.snr : undefined,
         rssi: (s.rssi !== null && s.rssi !== undefined) ? s.rssi : undefined,
+        obs: (s.obs !== undefined) ? (s.obs ? 1 : 0) : 0, // Preserve obs from samples
       };
       hashToCoverage.set(key, coverage);
     } else {
@@ -979,6 +1429,10 @@ function buildIndexes(nodes) {
       // since samples are the source of truth
       coverage.rcv = sampleHeard;
       coverage.lost = sampleLost;
+      // Update obs if present in sample
+      if (s.obs !== undefined) {
+        coverage.obs = s.obs ? 1 : 0;
+      }
       if (s.time > (coverage.time || 0)) {
         coverage.time = s.time;
       }

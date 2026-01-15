@@ -15,8 +15,7 @@ router.get('/get-nodes', async (req, res, next) => {
       samplesModel.getAll(),
       repeatersModel.getAll(region)
     ]);
-
-    // Filter samples and coverage by geographic location
+     // Filter samples and coverage by geographic location
     // This prevents showing samples from distant regions (e.g., Africa when viewing USA)
     const filteredSamples = samples.keys.filter(s => {
       try {
@@ -54,7 +53,6 @@ router.get('/get-nodes', async (req, res, next) => {
 
     // Aggregate samples by 6-character geohash prefix
     const sampleAggregates = new Map(); // geohash prefix -> { total, heard, lastTime, repeaters: Set, snr, rssi }
-
     // Track driver stats (drivers -> { count, heard, lost })
     const wardriveAppDrivers = new Set(); // drivers known to be from wardrive app
     const driverStats = new Map(); // driver name -> { count, heard, lost }
@@ -128,7 +126,7 @@ router.get('/get-nodes', async (req, res, next) => {
         agg.rssi = (agg.rssi === null) ? rssi : Math.max(agg.rssi, rssi);
       }
 
-      // Track which repeaters were hit (normalize to lowercase)
+      // Track which repeaters were hit
       path.forEach(repeaterId => {
         agg.repeaters.add(repeaterId.toLowerCase());
       });

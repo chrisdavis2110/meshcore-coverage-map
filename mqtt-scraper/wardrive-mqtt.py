@@ -158,7 +158,7 @@ def handle_advert(packet, region: str = None):
   if type != 2: return
 
   pubkey_hex = pubkey  # Full 64-char hex public key
-  id = pubkey_hex[0:2]  # First 2 chars for backward compatibility
+  id = pubkey[0:2]
   lat = 0
   lon = 0
   name = ""

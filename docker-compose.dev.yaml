@@ -2,7 +2,8 @@ services:
   db:
     image: postgres:15-alpine
     container_name: ${INSTANCE_NAME:-default}-meshmap-db
-    # Load DB credentials from .env file (with defaults for fresh setup)
+    # Load DB credentials from server/.env file
+    # Note: Use ./docker-compose.sh to run commands (it loads server/.env for variable substitution)
     env_file:
       - server/.env
     environment:
@@ -21,11 +22,12 @@ services:
       retries: 5
     networks:
       - meshmap-network
+    restart: unless-stopped
 
   app:
     build:
       context: server
-      dockerfile: Dockerfile.dev
+      dockerfile: Dockerfile
     container_name: ${INSTANCE_NAME:-default}-meshmap-app
     # Load environment variables from .env file
     # Copy server/.env.example to server/.env and configure your settings
@@ -34,6 +36,7 @@ services:
     environment:
       # Docker-specific overrides (service names, etc.)
       DB_HOST: db
+      NODE_ENV: production
       # All other config comes from server/.env file (see server/.env.example)
     ports:
       - "${HTTP_PORT:-3000}:3000"
@@ -47,7 +50,7 @@ services:
         condition: service_healthy
     networks:
       - meshmap-network
-    command: npm run dev
+    restart: unless-stopped
 
   mqtt-scraper:
     build:
