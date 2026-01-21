@@ -1,14 +1,16 @@
 const express = require('express');
 const router = express.Router();
 const samplesModel = require('../models/samples');
-const { parseLocation, sampleKey, definedOr, or, ageInDays } = require('../utils/shared');
+const driversModel = require('../models/drivers');
+const repeatersModel = require('../models/repeaters');
+const { parseLocation, sampleKey, coverageKey, definedOr, or, ageInDays } = require('../utils/shared');
 
 // GET /get-samples?p=<prefix>
 router.get('/get-samples', async (req, res, next) => {
   try {
     const prefix = req.query.p || null;
     const samples = await samplesModel.getByPrefix(prefix);
-    
+
     // Format response to match expected structure (name + metadata)
     // Also include flat format for backward compatibility
     const formatted = {
@@ -21,7 +23,8 @@ router.get('/get-samples', async (req, res, next) => {
             path: path,
             rssi: s.metadata.rssi ?? null,
             snr: s.metadata.snr ?? null,
-            observed: s.metadata.observed ?? path.length > 0
+            observed: s.metadata.observed ?? path.length > 0,
+            drivers: s.metadata.drivers ?? null
           },
           // Also include flat format for compatibility
           hash: s.name,
@@ -29,11 +32,12 @@ router.get('/get-samples', async (req, res, next) => {
           path: path,
           rssi: s.metadata.rssi ?? null,
           snr: s.metadata.snr ?? null,
-          observed: s.metadata.observed ?? path.length > 0
+          observed: s.metadata.observed ?? path.length > 0,
+          drivers: s.metadata.drivers ?? null
         };
       })
     };
-    
+
     res.json(formatted);
   } catch (error) {
     next(error);
@@ -43,37 +47,101 @@ router.get('/get-samples', async (req, res, next) => {
 // POST /put-sample
 router.post('/put-sample', express.json(), async (req, res, next) => {
   try {
-    const { lat, lon, path, snr, rssi, observed, time } = req.body;
+    const { lat, lon, path, snr, rssi, observed, time, repeaterPubkey, drivers, region } = req.body;
     const [parsedLat, parsedLon] = parseLocation(lat, lon);
     // Use provided time if available (for migrations), otherwise use current time
     const sampleTime = time ?? Date.now();
     const normalizedPath = (path ?? []).map(p => p.toLowerCase());
     const geohash = sampleKey(parsedLat, parsedLon);
-    
+
     // Get existing sample to merge metadata
     const existing = await samplesModel.getWithMetadata(geohash);
+
     let metadata = {
       time: sampleTime,
       path: normalizedPath,
       snr: snr ?? null,
       rssi: rssi ?? null,
-      observed: observed ?? normalizedPath.length > 0
+      observed: observed ?? normalizedPath.length > 0,
+      drivers: drivers ?? null
     };
-    
-    // Merge with existing if recent (< 1 day old)
+
+    if (metadata.drivers != null && metadata.drivers !== '') {
+      // Wardrive request - always use the drivers (for both hits and misses)
+      // This ensures driver stats track all pings from the user
+    } else {
+      // MQTT request - preserve existing drivers, never update it
+      if (existing.value !== null && existing.metadata !== null) {
+        metadata.drivers = existing.metadata.drivers ?? null;
+      } else {
+        metadata.drivers = null; // No existing drivers, MQTT doesn't set one
+      }
+    }
+
+    // Merge other fields if recent (< 1 day old)
     if (existing.value !== null && existing.metadata !== null && ageInDays(existing.metadata.time) < 1) {
       metadata = {
         time: Math.max(metadata.time, existing.metadata.time),
         snr: definedOr(Math.max, metadata.snr, existing.metadata.snr),
         rssi: definedOr(Math.max, metadata.rssi, existing.metadata.rssi),
         observed: definedOr(or, metadata.observed, existing.metadata.observed),
-        path: Array.from(new Set([...metadata.path, ...(existing.metadata.path || [])]))
+        path: Array.from(new Set([...metadata.path, ...(existing.metadata.path || [])])),
+        drivers: metadata.drivers
       };
     }
-    
+
     // Upsert - the database will handle merging paths atomically
-    await samplesModel.upsert(geohash, metadata.time, metadata.path, metadata.observed, metadata.snr, metadata.rssi);
-    
+    await samplesModel.upsert(geohash, metadata.time, metadata.path, metadata.observed, metadata.snr, metadata.rssi, metadata.drivers);
+
+    // If ping is observed and we have a driver name, convert miss to hit
+    // (decrement miss, increment hit) only if there's a recent miss for this driver+geohash+time
+    // Skip if drivers is null or empty (handles cases where drivers column may not exist)
+    // Use metadata.path (merged path) instead of normalizedPath (original request path)
+    const isObserved = metadata.observed || (metadata.path && metadata.path.length > 0);
+    if (isObserved && metadata.drivers && metadata.drivers !== '' && metadata.drivers !== null) {
+      try {
+        const coverageGeohash = coverageKey(parsedLat, parsedLon);
+        console.log(`[DRIVER HIT] Driver: ${metadata.drivers}, Geohash: ${coverageGeohash}, Observed: ${isObserved}, Path: ${normalizedPath.length}`);
+
+        // First try to convert a miss to hit (if there's a recent miss)
+        const converted = await driversModel.convertMissToHitIfRecent(
+          metadata.drivers,
+          coverageGeohash,
+          metadata.time,
+          300000 // 5 minute time window
+        );
+        if (converted) {
+          console.log(`[DRIVER HIT] Converted miss to hit for ${metadata.drivers} at ${coverageGeohash}`);
+        } else {
+          // No recent miss found, just increment hit without decrementing miss
+          console.log(`[DRIVER HIT] No recent miss found, incrementing hit for ${metadata.drivers} at ${coverageGeohash}`);
+          await driversModel.incrementHit(metadata.drivers, coverageGeohash);
+        }
+      } catch (e) {
+        // Log but don't fail the request if driver update fails
+        // This handles cases where drivers table or column might not exist
+        console.error(`[DRIVER HIT ERROR] Failed to update driver hit for ${metadata.drivers}:`, e);
+      }
+    } else {
+      if (!isObserved) {
+        console.log(`[DRIVER HIT] Ping not observed - skipping driver hit update`);
+      } else if (!metadata.drivers || metadata.drivers === '' || metadata.drivers === null) {
+        console.log(`[DRIVER HIT] No driver name - skipping driver hit update`);
+      }
+    }
+
+    // If we have a repeater public key, update/create the repeater entry
+    if (repeaterPubkey && normalizedPath.length > 0) {
+      const repeaterId = normalizedPath[0]; // First repeater in path (2-char hex)
+      try {
+        // Update repeater with full public key at this location
+        await repeatersModel.upsert(repeaterId, parsedLat, parsedLon, null, null, time, repeaterPubkey, region);
+      } catch (e) {
+        // Log but don't fail the request if repeater update fails
+        console.warn(`Failed to update repeater ${repeaterId} with pubkey:`, e);
+      }
+    }
+
     res.send('OK');
   } catch (error) {
     next(error);
@@ -81,4 +149,3 @@ router.post('/put-sample', express.json(), async (req, res, next) => {
 });
 
 module.exports = router;
-

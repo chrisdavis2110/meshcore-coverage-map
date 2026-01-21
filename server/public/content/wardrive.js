@@ -63,7 +63,7 @@ const debugModeCheckbox = $("debugModeCheckbox");
 const wardriveChannelHash = parseInt("e0", 16);
 const wardriveChannelKey = BufferUtils.hexToBytes("4076c315c1ef385fa93f066027320fe5");
 const wardriveChannelName = "#wardrive";
-const refreshTileAge = 1; // Tiles older than this (days) will get pinged again.
+const refreshTileAge = 3; // Tiles older than this (days) will get pinged again.
 
 // --- Global Init ---
 const utf8decoder = new TextDecoder(); // default 'utf-8'
@@ -75,7 +75,14 @@ let map = null;
 let osm = null;
 let coverageLayer = null;
 let pingLayer = null;
-let currentLocMarker = null;
+let currentLocMarker = L.circleMarker([0, 0], {
+    radius: 3,
+    weight: 0,
+    color: "red",
+    fillOpacity: .8,
+    interactive: false,
+    pane: "tooltipPane"
+  });
 
 function setStatus(text, color = null) {
   statusEl.textContent = text;
@@ -118,7 +125,9 @@ const state = {
   ignoreCoverageMap: false, // Ignore coverage map and send samples anyway
   debugMode: false, // Enable verbose debug logging
   coveredTiles: new Set(),
+  coveredTilesWithAge: new Map(), // tileId -> timestamp when it was marked as covered
   coverageTiles: new Map(), // tileId -> { o: 0|1, h: 0|1, a: ageInDays }
+  tileCoverageData: new Map(), // tileId -> { heard, lost, successRate } from server coverage data
   locationTimer: null,
   lastPosUpdate: 0, // Timestamp of last location update.
   currentPos: [0, 0],
@@ -140,13 +149,119 @@ function formatIsoLocal(iso) {
   return d.toLocaleString();
 }
 
+// Convert success rate (0-1) to a color gradient: green (100%) -> orange -> red (0%)
+function successRateToColor(rate) {
+  // Clamp rate to 0-1
+  const clampedRate = Math.max(0, Math.min(1, rate));
+
+  let red, green, blue;
+
+  if (clampedRate >= 0.8) {
+    // Dark green (0, 100, 0) to lighter green (50, 150, 50) (80-100%)
+    // Making light green closer to dark green
+    const t = (clampedRate - 0.8) / 0.2;       // 0 to 1
+    red = Math.round(0 + (50 - 0) * t);        // 0 -> 50
+    green = Math.round(100 + (150 - 100) * t); // 100 -> 150
+    blue = Math.round(0 + (50 - 0) * t);       // 0 -> 50
+  } else if (clampedRate >= 0.6) {
+    // Light green (50, 150, 50) to orange (255, 165, 0) (60-80%)
+    const t = (clampedRate - 0.6) / 0.2;        // 0 to 1
+    red = Math.round(50 + (255 - 50) * t);      // 50 -> 255
+    green = Math.round(150 + (165 - 150) * t);  // 150 -> 165
+    blue = Math.round(50 - 50 * t);             // 50 -> 0
+  } else if (clampedRate >= 0.4) {
+    // Orange (255, 165, 0) to red-orange (255, 100, 0) (40-60%)
+    const t = (clampedRate - 0.4) / 0.2;          // 0 to 1
+    red = 255;                                    // 255
+    green = Math.round(165 + (100 - 165) * t);    // 165 -> 100
+    blue = 0;                                     // 0
+  } else if (clampedRate >= 0.2) {
+    // Red-orange (255, 100, 0) to red (255, 0, 0) (20-40%)
+    const t = (clampedRate - 0.2) / 0.2;       // 0 to 1
+    red = 255;                                 // 255
+    green = Math.round(100 - 100 * t);         // 1000 -> 0
+    blue = 0;                                  // 0
+  } else {
+    // Red (255, 0, 0) (0-20%)
+    red = 255;                      // 255
+    green = 0;                      // 0
+    blue = 0;                       // 0
+  }
+
+  // Convert to hex
+  const toHex = (n) => {
+    const hex = n.toString(16);
+    return hex.length === 1 ? '0' + hex : hex;
+  };
+
+  return `#${toHex(red)}${toHex(green)}${toHex(blue)}`;
+}
+
 // --- Coverage Functions ---
 async function refreshCoverageData() {
   try {
-    const resp = await fetch("/get-wardrive-coverage");
-    const coveredTiles = (await resp.json()) ?? [];
-    debugLog(`Got ${coveredTiles.length} covered tiles from service.`);
-    coveredTiles.forEach(x => state.coveredTiles.add(x));
+    // Fetch data from /get-nodes (includes coverage, samples, and repeaters)
+    const resp = await fetch("/get-nodes", { headers: { 'Accept': 'application/json' } });
+    if (!resp.ok) {
+      throw new Error(`HTTP ${resp.status} ${resp.statusText}`);
+    }
+    const nodesData = await resp.json();
+
+    // Extract coverage data (nodesData.coverage uses 'id' instead of 'hash', 'rcv' instead of 'heard')
+    const coverageData = nodesData.coverage || [];
+    const samplesData = nodesData.samples || [];
+
+    // Get tile IDs from both coverage and samples (like the old /get-wardrive-coverage endpoint)
+    const coveredTilesSet = new Set();
+    coverageData.forEach(c => coveredTilesSet.add(c.id));
+    samplesData.forEach(s => coveredTilesSet.add(s.id)); // Samples also have 'id' as the 6-char geohash
+    const coveredTiles = Array.from(coveredTilesSet);
+
+    log(`Got ${coveredTiles.length} covered tiles from service (${coverageData.length} from coverage, ${samplesData.length} from samples).`);
+
+    // Store coverage data for border color calculation
+    coverageData.forEach(c => {
+      // /get-nodes uses 'rcv' for heard, 'id' for hash
+      const heard = c.rcv || 0;
+      const lost = c.lost || 0;
+      const totalSamples = heard + lost;
+      const successRate = totalSamples > 0 ? heard / totalSamples : 0;
+      state.tileCoverageData.set(c.id, {
+        heard: heard,
+        lost: lost,
+        successRate: successRate
+      });
+    });
+
+    // Samples use 'heard' and 'lost' fields directly
+    samplesData.forEach(s => {
+      if (!state.tileCoverageData.has(s.id)) {
+        // Only add if not already in coverage data
+        const heard = s.heard || 0;
+        const lost = s.lost || 0;
+        const totalSamples = heard + lost;
+        const successRate = totalSamples > 0 ? heard / totalSamples : 0;
+        state.tileCoverageData.set(s.id, {
+          heard: heard,
+          lost: lost,
+          successRate: successRate
+        });
+      }
+    });
+
+    const now = Date.now();
+    // Server returns tiles from last 3 days, so assume they're at least 1 day old
+    // to be conservative (existing tiles might be older)
+    const conservativeAge = now - (refreshTileAge * 24 * 60 * 60 * 1000);
+    coveredTiles.forEach(x => {
+      state.coveredTiles.add(x);
+      // Track when we learned about this tile
+      // For existing tiles, use conservative age (refreshTileAge days ago)
+      // This ensures old tiles will be pinged again if they're actually old
+      if (!state.coveredTilesWithAge.has(x)) {
+        state.coveredTilesWithAge.set(x, conservativeAge);
+      }
+    });
   } catch (e) {
     console.error("Getting coverage failed", e);
     setStatus("Get coverage failed", "text-red-300");
@@ -170,20 +285,64 @@ function mergeCoverage(id, value) {
   prev.a = Math.min(value.a, prev.a);
 }
 
-function getCoverageBoxMarker(tileId) {
-  function getMarkerColor(info) {
-    if (info.o)
-      return '#398821' // Observed - Green
-    if (info.h)
-      return '#FEAA2C' // Repeated - Orange
-    return '#E04748' // Miss - Red
+/**
+ * Get border color from coverage data (for initial load)
+ * Returns a color based on success rate from server coverage data
+ */
+function getBorderColorFromCoverageData(tileId) {
+  const coverageData = state.tileCoverageData.get(tileId);
+  if (coverageData) {
+    const totalSamples = coverageData.heard + coverageData.lost;
+    if (totalSamples > 0) {
+      // Use success rate to determine border color (green/orange/red gradient)
+      return successRateToColor(coverageData.successRate);
+    }
   }
+  // No coverage data or no samples - use neutral gray
+  return '#6A6A6A';
+}
 
+/**
+ * Get marker color based on tile activity (for post-ping updates)
+ */
+function getMarkerColor(info) {
+  if (info.o)
+    return '#398821' // Observed - Green
+  if (info.h)
+    return '#FEAA2C' // Repeated - Orange
+  return '#E04748' // Miss - Red
+}
+
+/**
+ * Create coverage box marker for initial load
+ * Shows gray fill with colored border based on server coverage data
+ */
+function getCoverageBoxMarkerInitial(tileId) {
+  const [minLat, minLon, maxLat, maxLon] = geo.decode_bbox(tileId);
+  const borderColor = getBorderColorFromCoverageData(tileId);
+
+  const style = {
+    color: borderColor,
+    weight: 1,
+    fillColor: '#6A6A6A', // Gray fill for initial load
+    fillOpacity: 0.25,
+    pane: "overlayPane",
+    interactive: false
+  };
+  return L.rectangle([[minLat, minLon], [maxLat, maxLon]], style);
+}
+
+/**
+ * Create coverage box marker after a ping
+ * Shows actual color (green/orange/red) based on whether ping was heard/observed
+ */
+function getCoverageBoxMarkerAfterPing(tileId) {
   const info = state.coverageTiles.get(tileId) || { o: 0, h: 0, a: refreshTileAge + 1 };
   const [minLat, minLon, maxLat, maxLon] = geo.decode_bbox(tileId);
+
   const color = getMarkerColor(info);
   const fresh = info.a <= refreshTileAge;
-  const fillColor = fresh ? color : fadeColor(color, .4);
+  const fillColor = fresh ? color : fadeColor(color, .3);
 
   const style = {
     color: color,
@@ -196,6 +355,47 @@ function getCoverageBoxMarker(tileId) {
   return L.rectangle([[minLat, minLon], [maxLat, maxLon]], style);
 }
 
+/**
+ * Legacy function - kept for compatibility, delegates to appropriate function
+ */
+function getCoverageBoxMarker(tileId) {
+  // Check if this tile has been pinged (has activity in coverageTiles)
+  const info = state.coverageTiles.get(tileId);
+  if (info && (info.o > 0 || info.h > 0)) {
+    // Tile has been pinged - use post-ping marker
+    return getCoverageBoxMarkerAfterPing(tileId);
+  } else {
+    // Tile hasn't been pinged yet - use initial marker
+    return getCoverageBoxMarkerInitial(tileId);
+  }
+}
+
+/**
+ * Add coverage box for initial load (gray fill, colored border)
+ */
+function addCoverageBoxInitial(tileId) {
+  coverageLayer.addLayer(getCoverageBoxMarkerInitial(tileId));
+}
+
+/**
+ * Update coverage box after a ping (colored fill based on heard/observed)
+ */
+function updateCoverageBoxAfterPing(tileId) {
+  // Remove existing marker if it exists
+  coverageLayer.eachLayer(layer => {
+    if (layer.tileId === tileId) {
+      coverageLayer.removeLayer(layer);
+    }
+  });
+  // Add new marker with post-ping styling
+  const marker = getCoverageBoxMarkerAfterPing(tileId);
+  marker.tileId = tileId; // Store tileId for easy removal
+  coverageLayer.addLayer(marker);
+}
+
+/**
+ * Legacy function - kept for compatibility
+ */
 function addCoverageBox(tileId) {
   coverageLayer.addLayer(getCoverageBoxMarker(tileId));
 }
@@ -203,7 +403,17 @@ function addCoverageBox(tileId) {
 function redrawCoverage() {
   coverageLayer.clearLayers();
   state.coveredTiles.forEach(c => {
-    addCoverageBox(c);
+    // Check if tile has been pinged - if so, use post-ping styling, otherwise initial
+    const info = state.coverageTiles.get(c);
+    if (info) {
+      // Tile has been pinged - use post-ping marker (colored fill)
+      const marker = getCoverageBoxMarkerAfterPing(c);
+      marker.tileId = c;
+      coverageLayer.addLayer(marker);
+    } else {
+      // Tile hasn't been pinged - use initial marker (gray fill, colored border)
+      addCoverageBoxInitial(c);
+    }
   });
 }
 
@@ -451,10 +661,13 @@ async function updateCurrentPosition() {
       map.panTo(state.currentPos);
     }
 
-    const coverageTileId = coverageKey(lat, lon);
-    const needsPing = !state.coveredTiles.has(coverageTileId);
-    if (currentTileEl) currentTileEl.innerText = coverageTileId;
-    if (currentNeedsPingEl) currentNeedsPingEl.innerText = needsPing ? "✅" : "⛔";
+  const coverageTileId = coverageKey(lat, lon);
+  // Check if tile needs ping: not in coveredTiles OR older than refreshTileAge days
+  const tileCoveredTime = state.coveredTilesWithAge.get(coverageTileId);
+  const daysSinceCovered = tileCoveredTime ? (Date.now() - tileCoveredTime) / (1000 * 60 * 60 * 24) : Infinity;
+  const needsPing = !state.coveredTiles.has(coverageTileId) || daysSinceCovered > refreshTileAge;
+  if (currentTileEl) currentTileEl.innerText = coverageTileId;
+  if (currentNeedsPingEl) currentNeedsPingEl.innerText = needsPing ? "✅" : "⛔";
 
     state.lastPosUpdate = Date.now();
   } catch (e) {
@@ -698,11 +911,11 @@ async function sendPing({ auto = false } = {}) {
       debugLog(`Min distance is 0, proceeding with ping.`);
     }
   } else {
-    // "fill" mode: Ensure ping is needed in the current tile.
-    // In fill mode, we ALWAYS respect the coverage map (ignoreCoverageMap only applies to interval mode)
-    const needsPing = !state.coveredTiles.has(coverageTileId);
-    const hasTile = state.coveredTiles.has(coverageTileId);
-    debugLog(`Fill mode: coverageTileId="${coverageTileId}", hasTile=${hasTile}, needsPing=${needsPing}, coveredTiles.size=${state.coveredTiles.size}, auto=${auto}`);
+    // Ensure ping is needed in the current tile.
+    // Check if tile needs ping: not in coveredTiles OR older than refreshTileAge days
+    const tileCoveredTime = state.coveredTilesWithAge.get(coverageTileId);
+    const daysSinceCovered = tileCoveredTime ? (Date.now() - tileCoveredTime) / (1000 * 60 * 60 * 24) : Infinity;
+    const needsPing = !state.coveredTiles.has(coverageTileId) || daysSinceCovered > refreshTileAge;
     if (auto && !needsPing) {
       debugLog(`Fill mode: Tile ${coverageTileId} already covered, skipping ping.`);
       setStatus("No ping needed", "text-amber-300");
@@ -735,7 +948,7 @@ async function sendPing({ auto = false } = {}) {
   let repeat = null;
   if (sentToMesh) {
     try {
-      repeat = await listenForRepeat(text);
+      repeat = await listenForRepeat(text, 2500);
       log(`Heard repeat from ${repeat.repeater}`);
     } catch {
       log("Didn't hear a repeat in time, assuming lost.");
@@ -743,17 +956,40 @@ async function sendPing({ auto = false } = {}) {
   }
 
   if (sentToMesh) {
+    // Update driver miss count when ping is sent
+    const driverName = state.selfInfo?.name || "wardrive-user";
+    try {
+      await fetch("/update-driver-miss", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: driverName, lat, lon }),
+      });
+    } catch (e) {
+      console.error("Driver miss update failed", e);
+      // Don't fail the ping if driver update fails
+    }
+
     // Send sample to service.
     try {
       const data = { lat, lon };
+      // Include driver name (device name or "wardrive-user")
+      data.drivers = driverName;
+
       if (repeat) {
         data.path = [repeat.repeater];
         data.observed = true; // We heard a repeat, so this is observed
+        // Include full public key if available
+        if (repeat.pubkey) {
+          data.repeaterPubkey = repeat.pubkey;
+        }
         if (!repeat.hitMobileRepeater) {
           // Don't include signal info when using a mobile repeater.
           data.snr = repeat.lastSnr;
           data.rssi = repeat.lastRssi;
         }
+      } else {
+        // No repeat heard - explicitly mark as not observed (miss) for driver stats
+        data.observed = false;
       }
 
       await fetch("/put-sample", {
@@ -782,11 +1018,15 @@ async function sendPing({ auto = false } = {}) {
   updateLastSampleInfo();
 
   if (!state.coveredTiles.has(coverageTileId)) {
-    state.coveredTiles.add(coverageTileId);
-    addCoverageBox(coverageTileId);
-  }
+      state.coveredTiles.add(coverageTileId);
+      state.coveredTilesWithAge.set(coverageTileId, Date.now());
+      addCoverageBoxInitial(coverageTileId);
+    } else {
+      // Update the age timestamp when we ping it again
+      state.coveredTilesWithAge.set(coverageTileId, Date.now());
+    }
 
-  // Wait a bit, then check if the sample was heard
+  // Wait a bit, then check if the sample was heard and update the tile
   setTimeout(async () => {
     const sample = await getSample(sampleId);
     const ping = { hash: sampleId };
@@ -801,7 +1041,8 @@ async function sendPing({ auto = false } = {}) {
       });
     }
 
-    addCoverageBox(coverageTileId);
+    // Update tile after ping - show actual color (green/orange/red)
+    updateCoverageBoxAfterPing(coverageTileId);
     addPingHistory(ping);
   }, 2500);
 
@@ -922,6 +1163,14 @@ async function handleConnect() {
 
   try {
     const connection = await WebBleConnection.open();
+
+    // User cancelled device picker or no device selected
+    if (!connection) {
+      setStatus("No device selected", "text-amber-300");
+      connectBtn.disabled = false;
+      return;
+    }
+
     state.connection = connection;
 
     // Add handlers
@@ -1008,7 +1257,7 @@ function onDisconnected() {
   setStatus("Disconnected", "text-red-300");
 }
 
-function onLogRxData(frame) {
+async function onLogRxData(frame) {
   const lastSnr = frame.lastSnr;
   const lastRssi = frame.lastRssi;
   let hitMobileRepeater = false;
@@ -1021,10 +1270,47 @@ function onLogRxData(frame) {
     return;
 
   // First repeater (ignoring mobile repeater).
-  let firstRepeater = packet.path[0].toString(16);
+  // packet.path is a Uint8Array where each element is 1 byte (first byte of public key)
+  let firstRepeaterPrefix = packet.path[0];
+  let firstRepeaterPubkey = null;
+
+  // Try to look up full public key from contacts
+  if (state.connection) {
+    try {
+      const contacts = await state.connection.getContacts();
+      // Find contact matching the prefix (first byte of public key)
+      const matchingContact = contacts.find(c => c.publicKey && c.publicKey[0] === firstRepeaterPrefix);
+      if (matchingContact && matchingContact.publicKey) {
+        // Convert 32-byte public key to 64-char hex string
+        firstRepeaterPubkey = Array.from(matchingContact.publicKey)
+          .map(b => b.toString(16).padStart(2, '0'))
+          .join('');
+      }
+    } catch (e) {
+      console.debug("Failed to get contacts for pubkey lookup:", e);
+    }
+  }
+
+  let firstRepeater = firstRepeaterPrefix.toString(16).padStart(2, '0');
   if (firstRepeater === state.ignoredId) {
-    firstRepeater = packet.path[1]?.toString(16);
+    firstRepeaterPrefix = packet.path[1];
+    firstRepeater = firstRepeaterPrefix?.toString(16).padStart(2, '0');
     hitMobileRepeater = true;
+
+    // Try to look up full public key for second repeater too
+    if (state.connection && firstRepeaterPrefix !== undefined) {
+      try {
+        const contacts = await state.connection.getContacts();
+        const matchingContact = contacts.find(c => c.publicKey && c.publicKey[0] === firstRepeaterPrefix);
+        if (matchingContact && matchingContact.publicKey) {
+          firstRepeaterPubkey = Array.from(matchingContact.publicKey)
+            .map(b => b.toString(16).padStart(2, '0'))
+            .join('');
+        }
+      } catch (e) {
+        console.debug("Failed to get contacts for pubkey lookup:", e);
+      }
+    }
   }
 
   // No valid path.
@@ -1054,6 +1340,7 @@ function onLogRxData(frame) {
     repeatEmitter.dispatchEvent(new CustomEvent("repeat", {
       detail: {
         repeater: firstRepeater,
+        pubkey: firstRepeaterPubkey, // Full public key if available
         text: msgText,
         hitMobileRepeater: hitMobileRepeater,
         lastSnr: lastSnr,
@@ -1164,10 +1451,10 @@ if ('bluetooth' in navigator) {
 export async function onLoad() {
   try {
     console.log('Wardrive: Starting onLoad...');
-    
+
     // Load config from server first
     await loadConfig();
-    
+
     // Initialize map with configured center position
     map = L.map('map', {
       worldCopyJump: true,
@@ -1180,27 +1467,20 @@ export async function onLoad() {
       zoomControl: false,
       doubleClickZoom: false
     }).setView(centerPos, initialZoom);
-    
+
     // Create and add tile layer
     osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 13,
       attribution: '© OpenStreetMap contributors'
     }).addTo(map);
-    
+
     // Create map layers
     coverageLayer = L.layerGroup().addTo(map);
     pingLayer = L.layerGroup().addTo(map);
-    
-    // Create and add current location marker to map
-    currentLocMarker = L.circleMarker([0, 0], {
-      radius: 3,
-      weight: 0,
-      color: "red",
-      fillOpacity: .8,
-      interactive: false,
-      pane: "tooltipPane"
-    }).addTo(map);
-    
+
+    // Add current location marker to map
+    currentLocMarker.addTo(map);
+
     loadLog();
     loadIgnoredId();
     loadIgnoreCoverageMap();

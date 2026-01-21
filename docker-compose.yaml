@@ -2,16 +2,13 @@ services:
   db:
     image: postgres:15-alpine
     container_name: ${INSTANCE_NAME:-default}-meshmap-db
-    # Load DB credentials from server/.env file
-    # Note: Use ./docker-compose.sh to run commands (it loads server/.env for variable substitution)
+    # Load DB credentials from .env file
     env_file:
       - server/.env
     environment:
       POSTGRES_USER: ${DB_USER:-meshmap}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-meshmap_dev}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-meshmap}
       POSTGRES_DB: ${DB_NAME:-meshmap}
-    ports:
-      - "${DB_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./server/migrations:/docker-entrypoint-initdb.d:ro
@@ -22,20 +19,21 @@ services:
       retries: 5
     networks:
       - meshmap-network
+    restart: unless-stopped
 
   app:
     build:
       context: server
-      dockerfile: Dockerfile.dev
+      dockerfile: Dockerfile
     container_name: ${INSTANCE_NAME:-default}-meshmap-app
     # Load environment variables from .env file
-    # Copy server/.env.example to server/.env and configure your settings
     env_file:
       - server/.env
     environment:
-      # Docker-specific overrides (service names, etc.)
+      # Docker-specific overrides
       DB_HOST: db
-      # All other config comes from server/.env file (see server/.env.example)
+      NODE_ENV: production
+      # All other config comes from server/.env file
     ports:
       - "${HTTP_PORT:-3000}:3000"
       - "${HTTPS_PORT:-3443}:3443"
@@ -48,7 +46,7 @@ services:
         condition: service_healthy
     networks:
       - meshmap-network
-    command: npm run dev
+    restart: unless-stopped
 
   mqtt-scraper:
     build:
@@ -66,7 +64,7 @@ services:
 
 # Volumes and networks are isolated per Docker Compose project
 # Each instance should be run from a separate directory or use -p flag
-# Example: docker-compose -p west up (for "west" instance)
+# Example: docker-compose -f docker-compose.prod.yml -p west up (for "west" instance)
 # Or set COMPOSE_PROJECT_NAME environment variable
 
 volumes:
@@ -75,4 +73,3 @@ volumes:
 networks:
   meshmap-network:
     driver: bridge
-

@@ -1,19 +1,18 @@
 #!/usr/bin/env node
 
 /**
- * Migration script to copy repeaters from one server to another
+ * Migration script to copy drivers from one server to another
  *
- * Fetches repeaters from source URL and posts them to destination URL.
+ * Fetches drivers from source URL and posts them to destination URL.
  *
  * Usage:
- *   node scripts/migrate-repeaters.js
- *   node scripts/migrate-repeaters.js --source <url> --dest <url>
+ *   node scripts/migrate-drivers.js
+ *   node scripts/migrate-drivers.js --source <url> --dest <url>
  */
 
-// Default URLs - MUST be overridden via command line arguments
-// Using placeholder URLs to prevent accidental migrations
-const DEFAULT_SOURCE = 'https://source.example.com/get-repeaters';
-const DEFAULT_DEST = 'https://dest.example.com/put-repeater';
+// Default URLs
+const DEFAULT_SOURCE = 'https://source.domain.com/get-drivers';
+const DEFAULT_DEST = 'http://dest.domain.com/put-driver';
 
 // Parse command line arguments
 function parseArgs() {
@@ -21,7 +20,7 @@ function parseArgs() {
   const config = {
     source: DEFAULT_SOURCE,
     dest: DEFAULT_DEST,
-    delay: 10 // milliseconds between requests
+    delay: 0 // milliseconds between requests
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -40,9 +39,9 @@ function parseArgs() {
   return config;
 }
 
-// Fetch repeaters from source URL
-async function fetchRepeaters(sourceUrl) {
-  console.log(`Fetching repeaters from ${sourceUrl}...`);
+// Fetch drivers from source URL
+async function fetchDrivers(sourceUrl) {
+  console.log(`Fetching drivers from ${sourceUrl}...`);
 
   try {
     const response = await fetch(sourceUrl);
@@ -57,32 +56,32 @@ async function fetchRepeaters(sourceUrl) {
       throw new Error('Invalid response format: expected { keys: [...] }');
     }
 
-    console.log(`✓ Fetched ${data.keys.length} repeaters`);
+    console.log(`✓ Fetched ${data.keys.length} driver entries`);
     return data.keys;
   } catch (error) {
-    console.error(`✗ Failed to fetch repeaters: ${error.message}`);
+    console.error(`✗ Failed to fetch drivers: ${error.message}`);
     throw error;
   }
 }
 
-// Post a single repeater to destination URL
-async function postRepeater(destUrl, repeater) {
-  const { metadata } = repeater;
+// Post a single driver entry to destination URL
+async function postDriver(destUrl, driver) {
+  const { metadata } = driver;
 
-  // Extract repeater data from metadata
-  const { id, name, lat, lon } = metadata;
+  // Extract driver data from metadata
+  const { name, geohash, hit, miss } = metadata;
 
   // Validate required fields
-  if (!id || lat === undefined || lon === undefined) {
-    throw new Error(`Missing required fields: id=${id}, lat=${lat}, lon=${lon}`);
+  if (!name || !geohash) {
+    throw new Error(`Missing required fields: name=${name}, geohash=${geohash}`);
   }
 
   // Build request body
   const body = {
-    id: id,
-    name: name || '',
-    lat: lat,
-    lon: lon
+    name: name,
+    geohash: geohash,
+    hit: hit || 0,
+    miss: miss || 0
   };
 
   try {
@@ -101,7 +100,10 @@ async function postRepeater(destUrl, repeater) {
 
     return true;
   } catch (error) {
-    throw new Error(`Failed to post repeater ${id} (${lat},${lon}): ${error.message}`);
+    // Provide more detailed error information
+    const errorDetails = error.cause ? ` (${error.cause.code || error.cause.message})` : '';
+    const errorMessage = error.message || 'Unknown error';
+    throw new Error(`Failed to post driver ${name} at ${geohash}: ${errorMessage}${errorDetails}`);
   }
 }
 
@@ -112,20 +114,7 @@ function sleep(ms) {
 
 // Main migration function
 async function migrate(config) {
-  // Validate that URLs are not placeholders
-  if (config.source.includes('example.com') || config.dest.includes('example.com')) {
-    console.error('ERROR: Default placeholder URLs detected!');
-    console.error('You must provide --source and --dest arguments.');
-    console.error('');
-    console.error('Usage:');
-    console.error('  node scripts/migrate-repeaters.js --source <url> --dest <url>');
-    console.error('');
-    console.error('Example:');
-    console.error('  node scripts/migrate-repeaters.js --source http://localhost:3000/get-repeaters --dest https://coverage.stonekitty.net/put-repeater');
-    process.exit(1);
-  }
-
-  console.log('Starting repeater migration...');
+  console.log('Starting driver migration...');
   console.log(`Source: ${config.source}`);
   console.log(`Destination: ${config.dest}`);
   if (config.delay > 0) {
@@ -133,40 +122,41 @@ async function migrate(config) {
   }
   console.log('');
 
-  // Fetch repeaters
-  let repeaters;
+  // Fetch drivers
+  let drivers;
   try {
-    repeaters = await fetchRepeaters(config.source);
+    drivers = await fetchDrivers(config.source);
   } catch (error) {
-    console.error('Migration failed: Could not fetch repeaters');
+    console.error('Migration failed: Could not fetch drivers');
     process.exit(1);
   }
 
-  if (repeaters.length === 0) {
-    console.log('No repeaters to migrate.');
+  if (drivers.length === 0) {
+    console.log('No driver entries to migrate.');
     return;
   }
 
-  // Migrate each repeater
+  // Migrate each driver entry
   let successCount = 0;
   let errorCount = 0;
   const errors = [];
 
-  for (let i = 0; i < repeaters.length; i++) {
-    const repeater = repeaters[i];
-    const progress = `[${i + 1}/${repeaters.length}]`;
-    const repeaterId = repeater.metadata?.id || 'unknown';
+  for (let i = 0; i < drivers.length; i++) {
+    const driver = drivers[i];
+    const progress = `[${i + 1}/${drivers.length}]`;
+    const driverName = driver.metadata?.name || 'unknown';
+    const geohash = driver.metadata?.geohash || 'unknown';
 
     try {
-      await postRepeater(config.dest, repeater);
+      await postDriver(config.dest, driver);
       successCount++;
 
-      if ((i + 1) % 50 === 0 || i === repeaters.length - 1) {
-        console.log(`${progress} Migrated ${successCount} repeaters (${errorCount} errors)`);
+      if ((i + 1) % 100 === 0 || i === drivers.length - 1) {
+        console.log(`${progress} Migrated ${successCount} driver entries (${errorCount} errors)`);
       }
     } catch (error) {
       errorCount++;
-      errors.push({ repeater: repeaterId, error: error.message });
+      errors.push({ driver: `${driverName}@${geohash}`, error: error.message });
 
       // Show error immediately for first few, then batch
       if (errorCount <= 10) {
@@ -175,7 +165,7 @@ async function migrate(config) {
     }
 
     // Add delay between requests if specified
-    if (config.delay > 0 && i < repeaters.length - 1) {
+    if (config.delay > 0 && i < drivers.length - 1) {
       await sleep(config.delay);
     }
   }
@@ -190,8 +180,8 @@ async function migrate(config) {
     console.log('');
     console.log('Errors:');
     const displayErrors = errors.slice(0, 20); // Show first 20 errors
-    displayErrors.forEach(({ repeater, error }) => {
-      console.log(`  ${repeater}: ${error}`);
+    displayErrors.forEach(({ driver, error }) => {
+      console.log(`  ${driver}: ${error}`);
     });
     if (errors.length > 20) {
       console.log(`  ... and ${errors.length - 20} more errors`);

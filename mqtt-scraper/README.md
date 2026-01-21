@@ -112,6 +112,32 @@ For Bay Area, the scraper watches:
 - `meshcore/SFO/+/packets` - San Francisco region
 - `meshcore/SJC/+/packets` - San Jose region
 
+### Region Mapping
+
+To support multiple regions and avoid repeater ID conflicts, you can map topics to regions:
+
+```json
+{
+  "topic_to_region": {
+    "meshcore/SFO/+/packets": "sf-bay",
+    "meshcore/OAK/+/packets": "sf-bay",
+    "meshcore/SJC/+/packets": "sf-bay",
+    "meshcore/NYC/+/packets": "nyc"
+  },
+  "topic_region_map": {
+    "SFO": "sf-bay",
+    "OAK": "sf-bay",
+    "SJC": "sf-bay",
+    "NYC": "nyc"
+  }
+}
+```
+
+- **topic_to_region**: Maps exact topic patterns to region names
+- **topic_region_map**: Maps topic parts (like "SFO", "OAK") to region names for automatic extraction
+
+When a region is specified, all repeaters and samples from that topic will be tagged with the region, preventing conflicts when the same repeater ID exists in multiple regions.
+
 ### Watched Observers
 
 Currently configured to watch:
@@ -120,6 +146,30 @@ Currently configured to watch:
 - "Nullrouten observer"
 
 Only messages from these observers will be processed.
+
+### Repeater Location Overrides
+
+You can specify fixed locations for specific repeaters by full public key. This is useful when:
+- A repeater's location in MQTT packets is incorrect or missing
+- You want to manually set a known repeater location
+- A repeater is mobile but you want to track it at a fixed location
+
+Add a `repeater_overrides` section to `config.json`:
+
+```json
+{
+  "repeater_overrides": {
+    "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1": [37.4241, -121.9756],
+    "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2": [37.3382, -121.8863]
+  }
+}
+```
+
+Where:
+- Keys are full public keys (64-character hex, case-insensitive)
+- Values are `[latitude, longitude]` arrays
+
+When a repeater's public key matches an override, the configured location will be used instead of the location from the MQTT packet. If a repeater has an override but no location in the packet, the override will still be used.
 
 ## Troubleshooting
 
@@ -140,4 +190,3 @@ Only messages from these observers will be processed.
 - Verify `service_host` is correct
 - Check that the API server is running
 - Review API logs for error details
-

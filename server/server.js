@@ -13,6 +13,7 @@ const HTTPS_PORT = process.env.HTTPS_PORT || 3443;
 initializeScheduledTasks();
 
 // Try to set up HTTPS
+// For Let's Encrypt: copy privkey.pem -> key.pem and fullchain.pem -> cert.pem
 const sslKeyPath = path.join(__dirname, 'ssl', 'key.pem');
 const sslCertPath = path.join(__dirname, 'ssl', 'cert.pem');
 
@@ -23,7 +24,7 @@ if (fs.existsSync(sslKeyPath) && fs.existsSync(sslCertPath)) {
       key: fs.readFileSync(sslKeyPath),
       cert: fs.readFileSync(sslCertPath)
     };
-    
+
     httpsServer = https.createServer(options, app);
     httpsServer.listen(HTTPS_PORT, '0.0.0.0', () => {
       console.log(`HTTPS server running on port ${HTTPS_PORT}`);
@@ -37,8 +38,13 @@ if (fs.existsSync(sslKeyPath) && fs.existsSync(sslCertPath)) {
   }
 } else {
   console.warn('SSL certificates not found. HTTPS not available.');
-  console.warn('To enable HTTPS, generate certificates in the ssl/ directory');
-  console.warn('Run: openssl req -x509 -newkey rsa:4096 -keyout ssl/key.pem -out ssl/cert.pem -days 365 -nodes');
+  console.warn('To enable HTTPS:');
+  console.warn('  1. Create server/ssl/ directory');
+  console.warn('  2. Copy your Let\'s Encrypt certificates:');
+  console.warn('     cp /etc/letsencrypt/live/coverage.wcmesh.com/privkey.pem server/ssl/key.pem');
+  console.warn('     cp /etc/letsencrypt/live/coverage.wcmesh.com/fullchain.pem server/ssl/cert.pem');
+  console.warn('  3. Or generate certificates in the ssl/ directory:');
+  console.warn('     Run: openssl req -x509 -newkey rsa:4096 -keyout ssl/key.pem -out ssl/cert.pem -days 365 -nodes');
 }
 
 // Always start HTTP server (for non-BLE features)
@@ -52,4 +58,3 @@ httpServer.listen(PORT, '0.0.0.0', () => {
     console.log(`   Generate SSL certificates to enable HTTPS for Bluefy/Web Bluetooth.`);
   }
 });
-

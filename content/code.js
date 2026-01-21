@@ -159,10 +159,40 @@ function sampleMarker(s) {
     ${path.length === 0 ? '' : '<br/>Hit: ' + path.join(',')}`;
   marker.bindPopup(details, { maxWidth: 320 });
   marker.on('add', () => updateSampleMarkerVisibility(marker));
+
+  // Store sample data on marker for event handlers
+  marker.sample = s;
+
+  // Add event handlers to show trace lines when clicking/hovering on sample
+  marker.on('popupopen', e => {
+    // Find the coverage object for this sample (take first 6 chars of geohash)
+    const coverageKey = s.id.substring(0, 6);
+    const coverage = hashToCoverage?.get(coverageKey);
+    if (coverage) {
+      updateAllEdgeVisibility(coverage);
+    }
+  });
+  marker.on('popupclose', () => updateAllEdgeVisibility());
+
+  if (window.matchMedia("(hover: hover)").matches) {
+    marker.on('mouseover', e => {
+      const coverageKey = s.id.substring(0, 6);
+      const coverage = hashToCoverage?.get(coverageKey);
+      if (coverage) {
+        updateAllEdgeVisibility(coverage);
+      }
+    });
+    marker.on('mouseout', () => updateAllEdgeVisibility());
+  }
+
   return marker;
 }
 
 function repeaterMarker(r) {
+  // Ensure repeater ID is normalized to lowercase for consistent matching
+  if (r.id) {
+    r.id = r.id.toLowerCase();
+  }
   const time = fromTruncatedTime(r.time);
   const stale = ageInDays(time) > 2;
   const dead = ageInDays(time) > 8;
@@ -193,6 +223,54 @@ function repeaterMarker(r) {
 
   r.marker = marker;
   return marker;
+}
+
+/**
+ * Find the repeater with the geohash closest to the coverage tile's geohash.
+ * Uses longest common prefix as the primary metric, with distance as tiebreaker.
+ */
+function getBestRepeaterByGeohash(coverageGeohash, repeaterList) {
+  if (repeaterList.length === 1) {
+    return repeaterList[0];
+  }
+
+  let bestRepeater = null;
+  let maxCommonPrefix = -1;
+  let minDistance = Infinity;
+
+  repeaterList.forEach(r => {
+    // Get repeater's geohash (6-char to match coverage tile precision)
+    const repeaterGeohash = r.geohash || geo.encode(r.lat, r.lon, 6);
+
+    // Calculate longest common prefix length
+    let commonPrefix = 0;
+    const minLen = Math.min(coverageGeohash.length, repeaterGeohash.length);
+    for (let i = 0; i < minLen; i++) {
+      if (coverageGeohash[i] === repeaterGeohash[i]) {
+        commonPrefix++;
+      } else {
+        break;
+      }
+    }
+
+    // Calculate actual distance as tiebreaker
+    // Decode coverage geohash to get lat/lon (geo.decode returns {latitude, longitude})
+    const coveragePos = geo.decode(coverageGeohash);
+    const distance = haversineMiles(
+      [r.lat, r.lon],
+      [coveragePos.latitude, coveragePos.longitude]
+    );
+
+    // Prefer longer common prefix, or if equal, prefer shorter distance
+    if (commonPrefix > maxCommonPrefix ||
+        (commonPrefix === maxCommonPrefix && distance < minDistance)) {
+      maxCommonPrefix = commonPrefix;
+      minDistance = distance;
+      bestRepeater = r;
+    }
+  });
+
+  return bestRepeater;
 }
 
 function getBestRepeater(fromPos, repeaterList) {
@@ -282,10 +360,48 @@ function updateAllEdgeVisibility(end) {
   updateAllCoverageMarkers();
 
   edgeLayer.eachLayer(e => {
-    if (end !== undefined && e.ends.includes(end)) {
+    let shouldShow = false;
+    if (end !== undefined) {
       // e.ends is [repeater, coverage]
-      markersToOverride.push(e.ends[0].marker);
-      coverageToHighlight.push(e.ends[1].marker);
+      // Check if end matches either the repeater or coverage
+      // Use ID comparison instead of object reference to handle multiple repeaters with same ID
+
+      // Check if it's a repeater (has id, lat, and lon as separate properties)
+      // Repeaters have lat/lon as separate properties, coverage only has pos array
+      if (end.id !== undefined && end.lat !== undefined && end.lon !== undefined) {
+        // end is a repeater
+          const edgeRepeater = e.ends[0];
+
+          // First try object reference (most reliable - each repeater object is unique)
+          if (edgeRepeater === end) {
+            shouldShow = true;
+          } else if (edgeRepeater.pubkey && end.pubkey) {
+            // If both have pubkeys, compare by pubkey (should be unique)
+            shouldShow = edgeRepeater.pubkey.toLowerCase() === end.pubkey.toLowerCase();
+          } else {
+            // Fallback: compare by ID AND location (to handle same ID in different regions)
+            const idMatch = edgeRepeater.id && end.id &&
+                           edgeRepeater.id.toLowerCase() === end.id.toLowerCase();
+            const locationMatch = edgeRepeater.lat === end.lat && edgeRepeater.lon === end.lon;
+            shouldShow = idMatch && locationMatch;
+          }
+      } else if (end.id !== undefined && Array.isArray(end.pos) && end.lat === undefined) {
+        // end is a coverage - compare by geohash ID
+        // Also check object reference as fallback
+        shouldShow = e.ends[1].id === end.id || e.ends[1] === end;
+      } else {
+        // Fallback to object reference comparison
+        shouldShow = e.ends.includes(end);
+      }
+    }
+
+    if (shouldShow) {
+      if (e.ends[0].marker) {
+        markersToOverride.push(e.ends[0].marker);
+      }
+      if (e.ends[1].marker) {
+        coverageToHighlight.push(e.ends[1].marker);
+      }
       e.setStyle({ opacity: 0.6 });
     } else {
       e.setStyle({ opacity: 0 });
@@ -293,10 +409,14 @@ function updateAllEdgeVisibility(end) {
   });
 
   // Force connected repeaters to be shown.
-  markersToOverride.forEach(m => updateRepeaterMarkerVisibility(m, true, true));
+  markersToOverride.forEach(m => {
+    if (m) updateRepeaterMarkerVisibility(m, true, true);
+  });
 
   // Highlight connected coverage markers.
-  coverageToHighlight.forEach(m => updateCoverageMarkerHighlight(m, true));
+  coverageToHighlight.forEach(m => {
+    if (m) updateCoverageMarkerHighlight(m, true);
+  });
 }
 
 function renderNodes(nodes) {
@@ -382,17 +502,99 @@ function buildIndexes(nodes) {
   nodes.repeaters.forEach(r => {
     r.hitBy = [];
     r.pos = [r.lat, r.lon];
-    pushMap(idToRepeaters, r.id, r);
+    // Normalize repeater ID to lowercase for consistent lookup
+    // (coverage.rptr stores IDs as lowercase)
+    const normalizedId = r.id.toLowerCase();
+    r.id = normalizedId; // Normalize the ID in the repeater object itself
+
+    // Compute repeater's geohash (6-char to match coverage tile precision)
+    r.geohash = geo.encode(r.lat, r.lon, 6);
+
+    pushMap(idToRepeaters, normalizedId, r);
   });
 
   // Build connections.
   hashToCoverage.entries().forEach(([key, coverage]) => {
+    // coverage.id is the 6-char geohash of the coverage tile
+    const coverageGeohash = key; // This is already the 6-char geohash
     coverage.rptr.forEach(r => {
       const candidateRepeaters = idToRepeaters.get(r);
       if (candidateRepeaters === undefined)
         return;
 
-      const bestRepeater = getBestRepeater(coverage.pos, candidateRepeaters);
+      // Strategy: Use geohash-based matching to find the closest repeater
+      // 1. Filter by region if we can infer the coverage tile's region
+      // 2. Among remaining candidates, find the one with geohash closest to coverage tile's geohash
+      // 3. This naturally handles geographic proximity and prevents cross-region conflicts
+
+      let finalCandidates = candidateRepeaters;
+
+      // Step 1: Infer the coverage tile's region from nearby repeaters
+      const nearbyRepeaters = Array.from(idToRepeaters.values()).flat().filter(r => {
+        const dist = haversineMiles(coverage.pos, r.pos);
+        return dist < 50 && r.region; // Within 50 miles and has a region
+      });
+
+      const nearbyRegionCounts = new Map();
+      nearbyRepeaters.forEach(r => {
+        const count = nearbyRegionCounts.get(r.region) || 0;
+        nearbyRegionCounts.set(r.region, count + 1);
+      });
+
+      let inferredRegion = null;
+      let maxCount = 0;
+      nearbyRegionCounts.forEach((count, region) => {
+        if (count > maxCount) {
+          maxCount = count;
+          inferredRegion = region;
+        }
+      });
+
+      // Step 2: If we inferred a region, STRICTLY filter by region match
+      if (inferredRegion) {
+        // Filter out repeaters that have a different region than inferred
+        const regionFiltered = finalCandidates.filter(r => {
+          return !r.region || r.region === inferredRegion;
+        });
+
+        if (regionFiltered.length > 0) {
+          finalCandidates = regionFiltered;
+        }
+
+        // Further refine: if we still have multiple candidates, prefer those with matching region
+        if (finalCandidates.length > 1) {
+          const regionMatched = finalCandidates.filter(r => r.region === inferredRegion);
+          if (regionMatched.length > 0) {
+            finalCandidates = regionMatched;
+          }
+        }
+      } else if (finalCandidates.length > 1) {
+        // Fallback: if no inferred region, group by repeater regions and prefer dominant group
+        const regionGroups = new Map();
+        finalCandidates.forEach(repeater => {
+          const region = repeater.region || 'no-region';
+          if (!regionGroups.has(region)) {
+            regionGroups.set(region, []);
+          }
+          regionGroups.get(region).push(repeater);
+        });
+
+        let largestGroup = null;
+        let largestGroupSize = 0;
+        regionGroups.forEach((repeaters, region) => {
+          if (repeaters.length > largestGroupSize && region !== 'no-region') {
+            largestGroupSize = repeaters.length;
+            largestGroup = repeaters;
+          }
+        });
+
+        if (largestGroup && largestGroupSize > 1) {
+          finalCandidates = largestGroup;
+        }
+      }
+
+      // Use geohash-based matching to find the closest repeater
+      const bestRepeater = getBestRepeaterByGeohash(coverageGeohash, finalCandidates);
       bestRepeater.hitBy.push(coverage);
       edgeList.push({ repeater: bestRepeater, coverage: coverage });
     });

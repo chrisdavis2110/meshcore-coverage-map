@@ -127,7 +127,7 @@ async function refreshCoverageData() {
 function getCoverageBoxMarker(tileId) {
   const [minLat, minLon, maxLat, maxLon] = geo.decode_bbox(tileId);
   const style = {
-    color: "#FFAB77",
+    color: "#2780F5",
     weight: 1,
     fillOpacity: 0.4,
   };
@@ -492,6 +492,19 @@ async function sendPing({ auto = false } = {}) {
   }
 
   if (sentToMesh) {
+    // Update driver miss count when ping is sent
+    const driverName = state.selfInfo?.name || "wardrive-user";
+    try {
+      await fetch("/update-driver-miss", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: driverName, lat, lon }),
+      });
+    } catch (e) {
+      console.error("Driver miss update failed", e);
+      // Don't fail the ping if driver update fails
+    }
+
     // Send sample to service.
     try {
       await fetch("https://mesh-map.pages.dev/put-sample", {
@@ -613,6 +626,14 @@ async function handleConnect() {
 
   try {
     const connection = await WebBleConnection.open();
+
+    // User cancelled device picker or no device selected
+    if (!connection) {
+      setStatus("No device selected", "text-amber-300");
+      connectBtn.disabled = false;
+      return;
+    }
+
     state.connection = connection;
 
     connection.on("connected", onConnected);
