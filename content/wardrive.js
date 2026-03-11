@@ -57,7 +57,7 @@ const coverageLayer = L.layerGroup().addTo(map);
 const currentLocMarker = L.circleMarker([0, 0], {
   radius: 3,
   weight: 0,
-  color: "red",
+  color: "blue",
   fillOpacity: .8
 }).addTo(map);
 

@@ -22,6 +22,10 @@ let repeaterSearch = '';
 let showSamples = false;
 let colorPalette = 'red-yellow-green'; // 'red-yellow-green', 'blue', 'patterns'
 let queryMode = 'coverage'; // 'coverage', 'observed-pct', 'heard-pct', 'last-updated', 'past-day', 'repeater-count', 'sample-count'
+/** @type {number|null} Start of selected date range (ms, start of day). Null = no lower bound. */
+let dateFilterFromMs = null;
+/** @type {number|null} End of selected date range (ms, end of day). Null = no upper bound. */
+let dateFilterToMs = null;
 
 // Data
 let nodes = null; // Graph data from the last refresh
@@ -44,6 +48,11 @@ mapControl.onAdd = m => {
   const div = L.DomUtil.create('div', 'mesh-control leaflet-control');
 
   div.innerHTML = `
+    <div class="mesh-control-header" id="mesh-control-header" title="Click to minimize or expand">
+      <span>Controls</span>
+      <button type="button" id="mesh-control-toggle" aria-label="Minimize">−</button>
+    </div>
+    <div id="mesh-control-body" class="mesh-control-body">
     <div class="mesh-control-row">
       <label>
         Query:
@@ -92,9 +101,43 @@ mapControl.onAdd = m => {
       </label>
     </div>
     <div class="mesh-control-row">
+      <label>
+        From:
+        <input type="date" id="date-filter-from" />
+      </label>
+    </div>
+    <div class="mesh-control-row">
+      <label>
+        To:
+        <input type="date" id="date-filter-to" />
+      </label>
+    </div>
+    <div class="mesh-control-row">
       <button type="button" id="refresh-map-button">Refresh map</button>
     </div>
+    </div>
   `;
+
+  const bodyEl = div.querySelector("#mesh-control-body");
+  const toggleBtn = div.querySelector("#mesh-control-toggle");
+  const headerEl = div.querySelector("#mesh-control-header");
+
+  function setMinimized(minimized) {
+    bodyEl.style.display = minimized ? "none" : "";
+    toggleBtn.textContent = minimized ? "+" : "−";
+    toggleBtn.setAttribute("aria-label", minimized ? "Expand" : "Minimize");
+  }
+
+  toggleBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const isMinimized = bodyEl.style.display === "none";
+    setMinimized(!isMinimized);
+  });
+  headerEl.addEventListener("click", (e) => {
+    if (e.target === toggleBtn) return;
+    const isMinimized = bodyEl.style.display === "none";
+    setMinimized(!isMinimized);
+  });
 
   div.querySelector("#query-mode-select")
     .addEventListener("change", (e) => {
@@ -142,6 +185,25 @@ mapControl.onAdd = m => {
 
   div.querySelector("#refresh-map-button")
     .addEventListener("click", () => refreshCoverage());
+
+  function applyDateFilterFromInputs() {
+    const fromEl = div.querySelector("#date-filter-from");
+    const toEl = div.querySelector("#date-filter-to");
+    const fromStr = fromEl?.value?.trim() || "";
+    const toStr = toEl?.value?.trim() || "";
+    dateFilterFromMs = fromStr ? new Date(fromStr + "T00:00:00").getTime() : null;
+    dateFilterToMs = toStr ? new Date(toStr + "T23:59:59.999").getTime() : null;
+    if (nodes) {
+      const filtered = getFilteredNodes();
+      if (filtered) {
+        buildIndexes(filtered);
+        renderNodes(filtered);
+      }
+    }
+  }
+
+  div.querySelector("#date-filter-from")?.addEventListener("change", applyDateFilterFromInputs);
+  div.querySelector("#date-filter-to")?.addEventListener("change", applyDateFilterFromInputs);
 
   // Don't let clicks on the control bubble up and pan/zoom the map.
   L.DomEvent.disableClickPropagation(div);
@@ -1366,6 +1428,35 @@ function renderNodes(nodes) {
   });
 }
 
+/**
+ * Apply date range filter to nodes. Returns a copy with coverage and samples filtered by dateFilterFromMs/dateFilterToMs.
+ * Backend times are truncated; we convert to ms with fromTruncatedTime for comparison.
+ */
+function getFilteredNodes() {
+  if (!nodes) return null;
+  if (dateFilterFromMs == null && dateFilterToMs == null) return nodes;
+
+  const inRange = (timeMs) => {
+    if (dateFilterFromMs != null && timeMs < dateFilterFromMs) return false;
+    if (dateFilterToMs != null && timeMs > dateFilterToMs) return false;
+    return true;
+  };
+
+  const coverage = nodes.coverage.filter(c => {
+    const t = c.ut ?? c.lot ?? c.lht ?? 0;
+    const timeMs = t ? fromTruncatedTime(t) : 0;
+    return inRange(timeMs);
+  });
+
+  const samples = nodes.samples.filter(s => {
+    const t = s.time ?? 0;
+    const timeMs = t ? fromTruncatedTime(t) : 0;
+    return inRange(timeMs);
+  });
+
+  return { ...nodes, coverage, samples };
+}
+
 function buildIndexes(nodes) {
   hashToCoverage = new Map();
   idToRepeaters = new Map();
@@ -1742,8 +1833,14 @@ export async function refreshCoverage() {
     throw new Error(`HTTP ${resp.status} ${resp.statusText}`);
 
   nodes = await resp.json();
-  buildIndexes(nodes);
-  renderNodes(nodes);
+  const filtered = getFilteredNodes();
+  if (filtered) {
+    buildIndexes(filtered);
+    renderNodes(filtered);
+  } else {
+    buildIndexes(nodes);
+    renderNodes(nodes);
+  }
 
   // // Update drivers list if it's open
   // const driversList = document.getElementById("drivers-list");

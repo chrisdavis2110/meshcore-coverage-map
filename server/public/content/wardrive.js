@@ -78,7 +78,7 @@ let pingLayer = null;
 let currentLocMarker = L.circleMarker([0, 0], {
     radius: 3,
     weight: 0,
-    color: "red",
+    color: "blue",
     fillOpacity: .8,
     interactive: false,
     pane: "tooltipPane"
@@ -860,7 +860,7 @@ async function sendPing({ auto = false } = {}) {
     setStatus("Get location failed", "text-amber-300");
     return;
   }
-  
+
   // If location update failed silently, check if we have a valid position
   if (!state.currentPos || state.currentPos[0] === 0 && state.currentPos[1] === 0) {
     setStatus("Location unavailable", "text-amber-300");

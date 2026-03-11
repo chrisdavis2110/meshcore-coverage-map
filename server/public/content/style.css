@@ -70,6 +70,46 @@ body,
   width: 13em;
 }
 
+.mesh-control-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: -2px -4px 8px -4px;
+  padding: 2px 4px;
+  cursor: pointer;
+  user-select: none;
+  border-radius: 3px;
+}
+
+.mesh-control-header:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.mesh-control-header span {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.mesh-control-header #mesh-control-toggle {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid #ccc;
+  border-radius: 3px;
+  background: #f5f5f5;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mesh-control-header #mesh-control-toggle:hover {
+  background: #e8e8e8;
+}
+
 .mesh-control-row {
   align-items: center;
 }
